@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────
 export const CONFIG = {
   // Spotify Developer Dashboard > ton app > Settings > Client ID
-  SPOTIFY_CLIENT_ID: '',
+  SPOTIFY_CLIENT_ID: '856be2ef892c421f8f2553bf8d65e43b',
 
   // Laisse vide : le site utilise automatiquement sa propre adresse.
   // Cette adresse exacte doit être ajoutée dans « Redirect URIs » sur Spotify
@@ -16,6 +16,6 @@ export const CONFIG = {
   // Supabase > Project Settings > API (ou Data API) :
   //   « Project URL » et la clé publique « anon » / « publishable »
   // Laisse vide pour essayer le site en mode local (données dans ce navigateur seulement).
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_URL: 'https://fioybdjlxfubzyzzneut.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_XrgyL8QDpVni3O20WQXdAA_dxqLofCd',
 };
