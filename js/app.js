@@ -2,11 +2,12 @@
 import { CONFIG } from './config.js';
 import * as sp from './spotify.js';
 import { createStore, trackKey, trackDefaults } from './store.js';
-import { DEFAULT_KEYWORDS, processDiscography, normalizeKey, playlistTracks, rankCompare, pickImage } from './fetcher.js';
+import { DEFAULT_KEYWORDS, processDiscography, dedupeKey, playlistTracks, rankCompare, pickImage } from './fetcher.js';
 
 const DEFAULT_SETTINGS = {
   keywords: DEFAULT_KEYWORDS,
   includeCompilations: false,
+  dedupeMode: 'base',           // base | exact | none
   playlistMode: 'all',          // all | rated | favorites
   playlistMinRating: 3,
   playlistName: '{artiste} · Tableau K-pop',
@@ -401,6 +402,13 @@ function viewSettings() {
       <label>Mots-clés à écarter <span class="muted small">(un par ligne — cherchés seulement entre parenthèses ou après « - »)</span>
         <textarea name="keywords" rows="7">${esc((s.keywords || []).join('\n'))}</textarea></label>
       <label class="check"><input type="checkbox" name="includeCompilations" ${s.includeCompilations ? 'checked' : ''}> Inclure les compilations</label>
+      <label>Doublons
+        <select name="dedupeMode">
+          <option value="base" ${(s.dedupeMode || 'base') === 'base' ? 'selected' : ''}>Une seule version par chanson (« CRUSH - KR » et « CRUSH - Japanese ver. » = 1)</option>
+          <option value="exact" ${s.dedupeMode === 'exact' ? 'selected' : ''}>Garder toutes les versions (écarte seulement les titres identiques)</option>
+          <option value="none" ${s.dedupeMode === 'none' ? 'selected' : ''}>Tout garder, même les titres identiques</option>
+        </select></label>
+      <p class="small muted">Après un changement, utilise « Tout revérifier » sur un artiste pour récupérer les chansons écartées avant.</p>
 
       <h2>Playlists</h2>
       <label>Nom des playlists <span class="muted small">({artiste} est remplacé par le nom)</span>
@@ -578,7 +586,9 @@ async function fetchArtist(artist, { full = false, job, report }) {
     done.push({ ...todo[i], tracks: await sp.getAlbumTracks(todo[i].id) });
   }
   const existing = tracksOf(artist.id);
-  const res = processDiscography(artist.spotify_id, done, state.settings.keywords, new Set(existing.map(t => normalizeKey(t.name))));
+  const mode = state.settings.dedupeMode || 'base';
+  const existingKeys = new Set(existing.map(t => dedupeKey(t.name, mode)).filter(k => k !== null));
+  const res = processDiscography(artist.spotify_id, done, state.settings.keywords, existingKeys, mode);
   const fresh = res.kept
     .map(t => trackDefaults({ ...t, artist_id: artist.id }))
     .filter(t => !state.tracks.has(trackKey(t)));
@@ -837,6 +847,7 @@ document.addEventListener('submit', guard(async e => {
       ...state.settings,
       keywords: String(f.get('keywords') || '').split(/[\n,]/).map(s => s.trim()).filter(Boolean),
       includeCompilations: f.get('includeCompilations') === 'on',
+      dedupeMode: ['base', 'exact', 'none'].includes(f.get('dedupeMode')) ? f.get('dedupeMode') : 'base',
       playlistName: String(f.get('playlistName') || '').trim() || DEFAULT_SETTINGS.playlistName,
       playlistMode: f.get('playlistMode'),
       playlistMinRating: Number(f.get('playlistMinRating')),

@@ -43,11 +43,27 @@ export function normalizeKey(title) {
 }
 
 /**
+ * Clé de dédoublonnage selon le mode choisi dans les Réglages :
+ *  - 'base'  : titre sans décorations → « CRUSH - KR » et « CRUSH - Japanese ver. » = même chanson (une seule gardée)
+ *  - 'exact' : titre complet → seules les copies identiques (même titre sur le single et l'album) sont écartées
+ *  - 'none'  : aucun dédoublonnage (null)
+ */
+export function dedupeKey(title, mode = 'base') {
+  if (mode === 'none') return null;
+  if (mode === 'exact') {
+    return String(title || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  }
+  return normalizeKey(title);
+}
+
+/**
  * albums : [{ id, name, album_type, release_date, images, tracks: [...] }]
- * existingKeys : Set de normalizeKey() des chansons déjà enregistrées pour cet artiste.
+ * existingKeys : Set de dedupeKey(titre, mode) des chansons déjà enregistrées pour cet artiste.
+ * mode : 'base' | 'exact' | 'none' (voir dedupeKey).
  * Retourne { kept: [enregistrements], filtered: n, duplicates: n, foreign: n }
  */
-export function processDiscography(artistSpotifyId, albums, keywords, existingKeys = new Set()) {
+export function processDiscography(artistSpotifyId, albums, keywords, existingKeys = new Set(), mode = 'base') {
   const compiled = compileKeywords(keywords);
   const seen = new Set(existingKeys);
   const kept = [];
@@ -60,9 +76,11 @@ export function processDiscography(artistSpotifyId, albums, keywords, existingKe
       if (!t?.id) continue;
       if (!(t.artists || []).some(a => a.id === artistSpotifyId)) { foreign++; continue; }
       if (filterReason(t.name, compiled)) { filtered++; continue; }
-      const key = normalizeKey(t.name);
-      if (seen.has(key)) { duplicates++; continue; }
-      seen.add(key);
+      const key = dedupeKey(t.name, mode);
+      if (key !== null) {
+        if (seen.has(key)) { duplicates++; continue; }
+        seen.add(key);
+      }
       kept.push({
         id: t.id,
         name: t.name,
