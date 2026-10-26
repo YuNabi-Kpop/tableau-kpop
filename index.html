@@ -1,18 +1,28 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tableau K-pop</title>
-  <meta name="description" content="Mon classement personnel de chansons K-pop, relié à Spotify.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff5c9a'/%3E%3Cstop offset='1' stop-color='%237c5cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M26 44a6 6 0 1 1-4-5.6V18l20-4v24a6 6 0 1 1-4-5.6V22l-12 2.4z' fill='white'/%3E%3C/svg%3E">
+  <title>Yu Nabi · Tableau K-pop</title>
+  <meta name="description" content="Le classement K-pop de Yu Nabi (유나비), relié à Spotify.">
+  <meta name="theme-color" content="#0d0716">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff4fa3'/%3E%3Cstop offset='1' stop-color='%23a46bff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='%230d0716'/%3E%3Cg fill='url(%23g)'%3E%3Cpath d='M31 31C26 15 10 7 6 15c-4 9 6 17 24 18z'/%3E%3Cpath d='M33 31C38 15 54 7 58 15c4 9-6 17-24 18z'/%3E%3Cpath d='M30 35c-11 1-18 9-15 16 3 6 11 2 15-11z'/%3E%3Cpath d='M34 35c11 1 18 9 15 16-3 6-11 2-15-11z'/%3E%3C/g%3E%3Crect x='30.6' y='24' width='2.8' height='24' rx='1.4' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!-- Dégradé partagé par tous les papillons -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs><linearGradient id="bf-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4fa3"/><stop offset=".55" stop-color="#c46bff"/><stop offset="1" stop-color="#6fd8ff"/></linearGradient></defs>
+  </svg>
+  <div class="stage" aria-hidden="true"><span class="sky s1"></span><span class="sky s2"></span><span class="beam b1"></span><span class="beam b2"></span></div>
+  <div id="decor" class="decor" aria-hidden="true"></div>
   <header class="top">
     <a class="brand" href="#/">
-      <span class="logo" aria-hidden="true"></span>
-      <span>Tableau K-pop</span>
+      <span class="logo" aria-hidden="true"><svg class="bf" viewBox="0 0 64 64"><g class="bf-wings" fill="url(#bf-grad)"><path d="M31 31C26 15 10 7 6 15c-4 9 6 17 24 18z"/><path d="M33 31C38 15 54 7 58 15c4 9-6 17-24 18z"/><path d="M30 35c-11 1-18 9-15 16 3 6 11 2 15-11z"/><path d="M34 35c11 1 18 9 15 16-3 6-11 2-15-11z"/></g><rect x="30.6" y="24" width="2.8" height="24" rx="1.4" fill="#fff"/><path d="M32 25c-1-6-4-10-8-12M32 25c1-6 4-10 8-12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+      <span class="brand-text"><span class="brand-name">Yu Nabi</span><span class="brand-sub">유나비 · tableau k-pop</span></span>
     </a>
     <nav id="tabs" class="tabs" aria-label="Onglets"></nav>
     <div id="account" class="account"></div>

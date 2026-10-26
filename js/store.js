@@ -49,14 +49,34 @@ class LocalStore {
     const [categories, artists, tracks, settings] = await Promise.all(
       ['categories', 'artists', 'tracks', 'settings'].map(s => this._all(s)));
     return {
-      categories, artists,
+      categories, artists: artists.map(({ members, ...a }) => a),
       tracks: tracks.map(({ key, ...t }) => t),
       settings: settings.find(s => s.id === 'main')?.data || {},
     };
   }
   saveCategory(c) { return this._tx('categories', 'readwrite', os => os.put(pick(c, CATEGORY_FIELDS))); }
   deleteCategory(id) { return this._tx('categories', 'readwrite', os => os.delete(id)); }
-  saveArtist(a) { return this._tx('artists', 'readwrite', os => os.put(pick(a, ARTIST_FIELDS))); }
+  saveArtist(a) {
+    // Les photos des membres sont enregistrées à part (saveMembers) : on les conserve ici.
+    return this._tx('artists', 'readwrite', os => {
+      const req = os.get(a.id);
+      req.onsuccess = () => os.put({ ...pick(a, ARTIST_FIELDS), members: req.result?.members || [] });
+    });
+  }
+  async loadMembers(id) {
+    const a = await this._tx('artists', 'readonly', os => os.get(id));
+    return a?.members || [];
+  }
+  async loadAllMembers() {
+    const all = await this._all('artists');
+    return new Map(all.map(a => [a.id, a.members || []]));
+  }
+  saveMembers(id, members) {
+    return this._tx('artists', 'readwrite', os => {
+      const req = os.get(id);
+      req.onsuccess = () => { if (req.result) os.put({ ...req.result, members }); };
+    });
+  }
   async deleteArtist(id) {
     await this._tx('tracks', 'readwrite', os => {
       const req = os.openCursor();
@@ -125,10 +145,10 @@ class SupabaseStore {
   }
   async signOut() { await this.sb.auth.signOut(); this.user = null; }
   _check({ error, data }) { if (error) throw new Error(`Supabase : ${error.message}`); return data; }
-  async _all(table, order) {
+  async _all(table, order, columns = '*') {
     const rows = [];
     for (let from = 0; ; from += 1000) {
-      let q = this.sb.from(table).select('*').range(from, from + 999);
+      let q = this.sb.from(table).select(columns).range(from, from + 999);
       if (order) q = q.order(order[0], { ascending: true }).order(order[1], { ascending: true });
       const data = this._check(await q);
       rows.push(...data);
@@ -139,7 +159,8 @@ class SupabaseStore {
   async load() {
     const [categories, artists, tracks, settingsRows] = await Promise.all([
       this._all('categories', ['position', 'id']),
-      this._all('artists', ['position', 'id']),
+      // Sans la colonne « members » (photos, plus lourdes) : chargée à la demande.
+      this._all('artists', ['position', 'id'], ARTIST_FIELDS.join(',')),
       this._all('tracks', ['artist_id', 'id']),
       this._all('settings'),
     ]);
@@ -151,6 +172,30 @@ class SupabaseStore {
   async deleteCategory(id) { this._check(await this.sb.from('categories').delete().eq('id', id)); }
   async saveArtist(a) { this._check(await this.sb.from('artists').upsert({ ...pick(a, ARTIST_FIELDS), user_id: this._uid() })); }
   async deleteArtist(id) { this._check(await this.sb.from('artists').delete().eq('id', id)); }
+  // Photos des membres : colonne jsonb « members » (voir supabase/migration-membres.sql).
+  membersMissing = false;
+  _membersError(error) {
+    if (/members/i.test(error.message)) {
+      this.membersMissing = true;
+      return new Error('Il manque la colonne « members » dans Supabase : exécute le fichier supabase/migration-membres.sql dans le SQL Editor (voir le guide).');
+    }
+    return new Error(`Supabase : ${error.message}`);
+  }
+  async loadMembers(id) {
+    const { data, error } = await this.sb.from('artists').select('members').eq('id', id).maybeSingle();
+    if (error) { this._membersError(error); return []; }
+    this.membersMissing = false;
+    return data?.members || [];
+  }
+  async loadAllMembers() {
+    const { data, error } = await this.sb.from('artists').select('id,members');
+    if (error) { this._membersError(error); return new Map(); }
+    return new Map(data.map(r => [r.id, r.members || []]));
+  }
+  async saveMembers(id, members) {
+    const { error } = await this.sb.from('artists').update({ members }).eq('id', id);
+    if (error) throw this._membersError(error);
+  }
   async insertTracks(tracks) {
     const rows = tracks.map(t => ({ ...pick(trackDefaults(t), TRACK_FIELDS), user_id: this._uid() }));
     for (const part of chunk(rows, 500)) {

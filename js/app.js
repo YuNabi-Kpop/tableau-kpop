@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS = {
   playlistMinRating: 3,
   playlistName: '{artiste} · Tableau K-pop',
 };
+const MAX_MEMBERS = 12;
+const DECOR_MIN_GUTTER = 104;   // largeur minimale de marge (px) pour afficher les photocards sur les côtés
 const QUICK_CATEGORIES = ['2GG', '3GG', '4GG', '5GG', 'Solistes', 'Sous-unités'];
 const PAGE_SIZE = 200;
 
@@ -25,6 +27,8 @@ const state = {
   view: { type: 'home' },
   songFilters: { q: '', category: '', minRating: 0, fav: false, showHidden: false, sort: 'rating', limit: PAGE_SIZE },
   artistFilters: { q: '', showHidden: false, sort: 'rank' },
+  members: new Map(),           // artistId → [{ src, name }] (chargé à la demande)
+  membersModal: null,           // artistId dont on gère les photos
 };
 const store = createStore();
 
@@ -49,6 +53,8 @@ const ICON = {
   eyeOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7c1.8 0 3.4-.5 4.7-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   gear: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  butterfly: '<svg class="bf" viewBox="0 0 64 64" aria-hidden="true"><g class="bf-wings" fill="url(#bf-grad)"><path d="M31 31C26 15 10 7 6 15c-4 9 6 17 24 18z"/><path d="M33 31C38 15 54 7 58 15c4 9-6 17-24 18z"/><path d="M30 35c-11 1-18 9-15 16 3 6 11 2 15-11z"/><path d="M34 35c11 1 18 9 15 16-3 6-11 2-15-11z"/></g><rect x="30.6" y="24" width="2.8" height="24" rx="1.4" fill="#fff"/><path d="M32 25c-1-6-4-10-8-12M32 25c1-6 4-10 8-12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M21 16l-5-5-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
   music: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18a3 3 0 1 1-2-2.8V5l12-2v12a3 3 0 1 1-2-2.8V7.4L9 8.8z" fill="currentColor"/></svg>',
 };
 
@@ -111,7 +117,7 @@ function openModal(html, { onOpen, wide = false } = {}) {
   onOpen?.(root.querySelector('.modal'));
   root.querySelector('input, button.primary')?.focus();
 }
-function closeModal() { const r = $('#modal-root'); r.classList.remove('open'); r.innerHTML = ''; }
+function closeModal() { const r = $('#modal-root'); r.classList.remove('open'); r.innerHTML = ''; state.membersModal = null; }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#modal-root').classList.contains('open')) $('#modal-root [data-act="modal-close"]')?.click();
 });
@@ -187,6 +193,7 @@ function render() {
   else if (v.type === 'songs') main.innerHTML = viewSongs();
   else if (v.type === 'settings') main.innerHTML = viewSettings();
   else main.innerHTML = viewHome();
+  renderDecor();
 }
 
 /** Re-rendu qui n'interrompt pas une saisie en cours (note, rang, recherche). */
@@ -198,8 +205,8 @@ function softRender() {
 
 function viewHome() {
   return `<section class="empty hero">
-    <span class="logo big" aria-hidden="true"></span>
-    <h1>Bienvenue dans ton Tableau K-pop</h1>
+    <span class="logo big" aria-hidden="true">${ICON.butterfly}</span>
+    <h1>Bienvenue, Yu Nabi <span class="sparkle" aria-hidden="true">✦</span></h1>
     <p>Commence par créer tes onglets (par génération, par type de groupe…), puis ajoute tes artistes.</p>
     <div class="chips">${QUICK_CATEGORIES.map(n => `<button class="chip" data-act="quick-cat" data-name="${esc(n)}">${ICON.plus}${esc(n)}</button>`).join('')}</div>
     <button class="primary" data-act="add-category">${ICON.plus}Autre onglet…</button>
@@ -315,7 +322,9 @@ function viewArtist(id) {
           <button data-act="playlist-artist" data-id="${a.id}" ${all.length ? '' : 'disabled'}>${ICON.list}${a.playlist_id ? 'Mettre à jour la playlist' : 'Créer la playlist'}</button>
           ${a.playlist_id ? `<a class="btn" href="https://open.spotify.com/playlist/${esc(a.playlist_id)}" target="_blank" rel="noopener">${ICON.ext}Playlist</a>` : ''}
           <a class="btn" href="${spotifyUrl}" target="_blank" rel="noopener">${ICON.ext}Spotify</a>
+          <button data-act="members" data-id="${a.id}" title="Photos affichées en photocards autour de la page">${ICON.image}Photos des membres${state.members.get(a.id)?.length ? ` (${state.members.get(a.id).length})` : ''}</button>
         </div>
+        <div class="hero-members" id="hero-members" aria-hidden="true"></div>
         <div class="row wrap small">
           <label class="inline">Onglet <select data-act="artist-category" data-id="${a.id}">${catOptions}</select></label>
           <label class="check"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure des récupérations groupées</label>
@@ -428,7 +437,7 @@ function viewSettings() {
 
 function viewLogin() {
   return `<section class="login card pad">
-    <span class="logo big" aria-hidden="true"></span>
+    <span class="logo big" aria-hidden="true">${ICON.butterfly}</span>
     <h1>Connexion</h1>
     <p class="muted">Connecte-toi avec le compte créé dans Supabase.</p>
     <form class="form" id="login-form">
@@ -437,6 +446,194 @@ function viewLogin() {
       <button class="primary">Se connecter</button>
     </form>
   </section>`;
+}
+
+// ───────────────────────── Décor : photocards autour de la page ─────────────────────────
+const rand = (a, b) => a + Math.random() * (b - a);
+const shuffle = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const membersLoading = new Set();
+
+function ensureMembers(id) {
+  if (state.members.has(id) || membersLoading.has(id)) return;
+  membersLoading.add(id);
+  store.loadMembers(id).catch(() => []).then(m => {
+    membersLoading.delete(id);
+    state.members.set(id, Array.isArray(m) ? m : []);
+    if (state.view.type === 'artist' && state.view.id === id) {
+      decorSig = '';
+      renderDecor();
+      const btn = document.querySelector(`[data-act="members"][data-id="${id}"]`);
+      if (btn && m.length) btn.lastChild.textContent = `Photos des membres (${m.length})`;
+    }
+  });
+}
+
+/** Ce qu'on affiche sur les côtés selon la vue : photos des membres, sinon pochettes / photos d'artistes. */
+function decorSource() {
+  const v = state.view;
+  if (v.type === 'artist') {
+    const m = state.members.get(v.id);
+    if (m === undefined) { ensureMembers(v.id); return null; }
+    if (m.length) return { key: `a:${v.id}:m${m.length}`, shape: 'card', items: m.map(x => ({ src: x.src, label: x.name })) };
+    const covers = [...new Set(tracksOf(v.id).map(t => t.album_image).filter(Boolean))];
+    return { key: `a:${v.id}:c${covers.length}`, shape: 'square', items: covers.map(src => ({ src })) };
+  }
+  if (v.type === 'cat') {
+    const list = (v.id === 'none' ? orphanArtists() : artistsOf(v.id)).filter(a => a.image);
+    return { key: `c:${v.id}:${list.length}`, shape: 'square', items: list.map(a => ({ src: a.image, label: a.name })) };
+  }
+  if (v.type === 'songs') {
+    const favs = [...new Set([...state.tracks.values()].filter(t => t.favorite && t.album_image).map(t => t.album_image))];
+    return { key: `s:${favs.length}`, shape: 'square', items: favs.map(src => ({ src })) };
+  }
+  return { key: v.type, shape: 'square', items: [] };
+}
+
+function photocard({ src, label }, shape, small = false) {
+  const card = document.createElement('figure');
+  card.className = `pc ${shape}${small ? ' mini' : ''}`;
+  const inner = document.createElement('div');
+  inner.className = 'pc-in';
+  const img = document.createElement('img');
+  img.alt = '';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.referrerPolicy = 'no-referrer';
+  img.onerror = () => card.remove();
+  img.src = src;
+  inner.append(img);
+  if (label && !small) {
+    const cap = document.createElement('figcaption');
+    cap.textContent = label;
+    inner.append(cap);
+  }
+  card.append(inner);
+  return card;
+}
+
+let decorSig = '';
+function renderDecor() {
+  const src = decorSource();
+  // Bandeau de photos dans l'en-tête de l'artiste (écrans étroits).
+  const strip = $('#hero-members');
+  if (strip && src && src.shape === 'card' && !strip.childElementCount) {
+    src.items.forEach(it => {
+      const c = photocard(it, 'card', true);
+      c.style.setProperty('--r', `${rand(-7, 7).toFixed(1)}deg`);
+      strip.append(c);
+    });
+  }
+  const el = $('#decor');
+  const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  const sig = `${src?.key}|${vw}|${Math.round(vh / 40)}`;
+  if (sig === decorSig) return;
+  decorSig = sig;
+  el.innerHTML = '';
+  if (!src) return;
+  const gutter = (vw - Math.min(vw, 1200)) / 2;
+  if (gutter < DECOR_MIN_GUTTER) return;
+
+  const top = 84, bottom = document.body.classList.contains('has-player') ? 110 : 24;
+  const avail = vh - top - bottom;
+  const items = shuffle(src.items).slice(0, src.shape === 'card' ? MAX_MEMBERS : 8);
+  const ratio = src.shape === 'card' ? 1.5 : 1;
+  const sides = [[], []];
+  const first = Math.random() < .5 ? 0 : 1;
+  items.forEach((it, i) => sides[(i + first) % 2].push(it));
+
+  sides.forEach((list, side) => {
+    const n = Math.max(list.length, 1);
+    const slot = avail / n;
+    const capH = src.shape === 'card' ? 34 : 14;
+    let w = Math.min(gutter - 32, 170, (slot * 1.12 - capH) / ratio);
+    w = Math.max(w, 64);
+    list.forEach((it, i) => {
+      const c = photocard(it, src.shape);
+      const h = w * ratio + capH;
+      let y = top + i * slot + rand(0, Math.max(0, slot - h));
+      y = Math.min(y, vh - bottom - h);
+      const span = Math.max(0, gutter - w - 24);
+      const x = side === 0 ? 12 + rand(0, span) : vw - gutter + 12 + rand(0, span);
+      c.style.cssText = `left:${x.toFixed(0)}px;top:${y.toFixed(0)}px;width:${w.toFixed(0)}px;--r:${rand(-9, 9).toFixed(1)}deg;--d:${rand(-7, 0).toFixed(1)}s;--t:${rand(5.5, 8.5).toFixed(1)}s`;
+      el.append(c);
+    });
+  });
+  // Quelques papillons qui volettent dans les marges.
+  for (let i = 0; i < 3; i++) {
+    const b = document.createElement('span');
+    b.className = 'flutter';
+    b.innerHTML = ICON.butterfly;
+    const side = i % 2;
+    const x = side === 0 ? rand(8, gutter - 40) : vw - gutter + rand(8, gutter - 40);
+    b.style.cssText = `left:${x.toFixed(0)}px;top:${rand(top, vh - 60).toFixed(0)}px;--d:${rand(-9, 0).toFixed(1)}s;--s:${rand(.6, 1).toFixed(2)}`;
+    el.append(b);
+  }
+}
+let resizeTimer;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderDecor, 200); });
+
+// ───────────────────────── Photos des membres ─────────────────────────
+function compressImage(file, max = 440) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k);
+      c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', .82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`${file.name} : image illisible (JPG, PNG ou WebP).`)); };
+    img.src = url;
+  });
+}
+
+function membersModalHtml(id) {
+  const a = artistById(id);
+  const list = state.members.get(id) || [];
+  const missing = store.mode === 'supabase' && store.membersMissing;
+  return `<div class="form">
+    <div class="row between"><h2>${ICON.butterfly} Photos des membres · ${esc(a.name)}</h2><button class="icon-btn" data-act="modal-close" aria-label="Fermer">${ICON.x}</button></div>
+    <p>Elles s'affichent en photocards sur les côtés de la page de ${esc(a.name)}, placées au hasard à chaque visite. Le nom est facultatif.</p>
+    ${missing ? `<div class="banner flat">Une petite mise à jour de Supabase est nécessaire avant d'ajouter des photos : dans <strong>SQL Editor → New query</strong>, colle et lance :
+      <code class="copy">alter table public.artists add column if not exists members jsonb not null default '[]'::jsonb;</code></div>` : ''}
+    ${list.length ? `<div class="member-grid">${list.map((m, i) => `<div class="member">
+        <img src="${esc(m.src)}" alt="" referrerpolicy="no-referrer">
+        <input data-act="member-name" data-i="${i}" value="${esc(m.name || '')}" placeholder="Nom" maxlength="30" aria-label="Nom du membre">
+        <button class="icon-btn member-del" data-act="member-del" data-i="${i}" aria-label="Retirer cette photo">${ICON.x}</button>
+      </div>`).join('')}</div>` : '<p class="muted small">Aucune photo pour l’instant.</p>'}
+    ${list.length < MAX_MEMBERS ? `<div class="row wrap">
+      <label class="btn primary">${ICON.plus}Ajouter des photos<input type="file" accept="image/*" multiple data-act="member-files" hidden></label>
+      <span class="muted small">ou</span>
+      <input type="url" id="member-url" placeholder="Coller le lien d'une image…" class="grow">
+      <button data-act="member-url">Ajouter</button>
+    </div>
+    <p class="small muted">Astuce : un fichier ajouté depuis ton appareil est plus fiable qu'un lien (certains sites bloquent l'affichage ailleurs). Les photos sont réduites automatiquement.</p>`
+    : `<p class="small muted">Maximum ${MAX_MEMBERS} photos par artiste.</p>`}
+  </div>`;
+}
+
+function openMembers(id) {
+  state.membersModal = id;
+  const show = () => openModal(membersModalHtml(id), { wide: true });
+  if (state.members.has(id)) show();
+  else store.loadMembers(id).catch(() => []).then(m => { state.members.set(id, m); show(); });
+}
+
+function refreshMembersModal() {
+  const m = $('#modal-root .modal');
+  if (m && state.membersModal) m.innerHTML = membersModalHtml(state.membersModal);
+}
+
+async function saveMembers(id, list) {
+  const before = state.members.get(id) || [];
+  state.members.set(id, list);
+  try { await store.saveMembers(id, list); } catch (e) { state.members.set(id, before); refreshMembersModal(); throw e; }
+  refreshMembersModal();
+  if (state.view.type === 'artist' && state.view.id === id) { decorSig = ''; render(); }
 }
 
 // ───────────────────────── Navigation ─────────────────────────
@@ -695,13 +892,15 @@ function play(trackId) {
   el.innerHTML = `<iframe title="Lecteur Spotify" src="https://open.spotify.com/embed/track/${encodeURIComponent(trackId)}?utm_source=generator" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
     <button class="icon-btn" data-act="close-player" aria-label="Fermer le lecteur">${ICON.x}</button>`;
   document.body.classList.add('has-player');
+  decorSig = ''; renderDecor();
 }
 
 // ───────────────────────── Import / export ─────────────────────────
-function exportJson() {
+async function exportJson() {
+  const members = await store.loadAllMembers();
   const data = {
     app: 'tableau-kpop', version: 1, exported_at: new Date().toISOString(),
-    categories: state.categories, artists: state.artists, tracks: [...state.tracks.values()], settings: state.settings,
+    categories: state.categories, artists: state.artists.map(a => ({ ...a, members: members.get(a.id) || [] })), tracks: [...state.tracks.values()], settings: state.settings,
   };
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -716,6 +915,12 @@ async function importJson(file) {
   if (data.app !== 'tableau-kpop') throw new Error('Ce fichier ne vient pas de Tableau K-pop.');
   if (!await confirmBox('Importer ce fichier ?', `${data.artists?.length || 0} artistes et ${data.tracks?.length || 0} chansons remplaceront toutes les données actuelles.`, 'Importer')) return;
   await store.importAll(data);
+  for (const a of data.artists || []) {
+    if (a.members?.length) {
+      try { await store.saveMembers(a.id, a.members); } catch (e) { toast(e.message, 'error', 8000); break; }
+    }
+  }
+  state.members.clear();
   await loadData();
   toast('Import terminé.');
   go('#/');
@@ -758,10 +963,24 @@ const actions = {
   'sb-logout': async () => { await store.signOut(); location.reload(); },
   'cancel-job': async () => { if (state.job) state.job.cancel = true; },
   'close-progress': async () => hideProgress(),
-  'close-player': async () => { const p = $('#player'); p.hidden = true; p.innerHTML = ''; document.body.classList.remove('has-player'); },
+  'close-player': async () => { const p = $('#player'); p.hidden = true; p.innerHTML = ''; document.body.classList.remove('has-player'); decorSig = ''; renderDecor(); },
   'modal-close': async () => closeModal(),
   'export': async () => exportJson(),
   'more-songs': async () => { state.songFilters.limit += PAGE_SIZE; render(); },
+  'members': async el => openMembers(el.dataset.id),
+  'member-del': async el => {
+    const id = state.membersModal;
+    const list = [...(state.members.get(id) || [])];
+    list.splice(Number(el.dataset.i), 1);
+    await saveMembers(id, list);
+  },
+  'member-url': async () => {
+    const id = state.membersModal;
+    const url = $('#member-url')?.value.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) { toast('Colle un lien qui commence par https://', 'error'); return; }
+    await saveMembers(id, [...(state.members.get(id) || []), { src: url, name: '' }].slice(0, MAX_MEMBERS));
+  },
   // Lignes de chansons
   'play': async (el, key) => play(state.tracks.get(key).id),
   'rate': async (el, key) => {
@@ -799,6 +1018,19 @@ document.addEventListener('change', guard(async e => {
   } else if (act === 'artist-category') {
     const a = artistById(el.dataset.id); a.category_id = el.value; a.position = artistsOf(el.value).length;
     await saveArtist(a); toast(`${a.name} déplacé dans « ${categoryById(el.value)?.name} ».`); render();
+  } else if (act === 'member-files') {
+    const id = state.membersModal;
+    const files = [...el.files].slice(0, MAX_MEMBERS - (state.members.get(id) || []).length);
+    el.value = '';
+    const added = [];
+    for (const f of files) added.push({ src: await compressImage(f), name: '' });
+    if (added.length) await saveMembers(id, [...(state.members.get(id) || []), ...added]);
+  } else if (act === 'member-name') {
+    const id = state.membersModal;
+    const list = (state.members.get(id) || []).map((m, i) => i === Number(el.dataset.i) ? { ...m, name: el.value.trim() } : m);
+    state.members.set(id, list);
+    await store.saveMembers(id, list);
+    if (state.view.type === 'artist' && state.view.id === id) { decorSig = ''; renderDecor(); }
   } else if (act === 'import') {
     if (el.files[0]) await importJson(el.files[0]);
     el.value = '';

@@ -83,6 +83,14 @@ Ces valeurs peuvent être publiques : la sécurité vient de la connexion PKCE d
 
 Les mots-clés (remix, inst, live, ver., sped up…) sont cherchés **seulement entre parenthèses ou après « - »**. Ainsi, « LIVE MY LIFE » est gardée, mais « Psycho (Live) » est écartée. Les doublons (même titre sur un single puis sur un album) sont fusionnés en gardant la première sortie. La liste des mots-clés se modifie dans ⚙ Réglages ; après un changement, utilise **Tout revérifier** sur un artiste.
 
+### Photos des membres (photocards)
+
+Sur la page d'un artiste, le bouton **Photos des membres** permet d'ajouter jusqu'à 12 photos (fichiers de ton appareil ou liens d'images), avec un nom facultatif. Elles s'affichent en photocards sur les côtés de la page, placées au hasard à chaque visite. Sur un écran plus étroit (portable 13 po, téléphone), elles apparaissent en petite rangée sous les boutons. Sans photo, les côtés montrent les pochettes de l'artiste.
+
+Les fichiers sont réduits automatiquement (environ 440 px) avant d'être enregistrés. Un fichier est plus fiable qu'un lien, car certains sites bloquent l'affichage de leurs images ailleurs.
+
+**Si ta base Supabase a été créée avant cette fonction**, lance une fois `supabase/migration-membres.sql` dans **SQL Editor → New query → Run** (une seule ligne, n'efface rien).
+
 ### Sauvegarde
 
 ⚙ Réglages → **Exporter (JSON)** télécharge une copie complète de tes données. **Importer** remplace tout : c'est aussi le moyen de passer du mode local à Supabase.

@@ -24,6 +24,7 @@ create table if not exists public.artists (
   last_fetched_at  timestamptz,
   note             text,
   position         integer not null default 0,
+  members          jsonb not null default '[]'::jsonb,   -- photos des membres [{src, name}]
   created_at       timestamptz not null default now()
 );
 
@@ -53,6 +54,9 @@ create table if not exists public.settings (
   user_id  uuid primary key default auth.uid() references auth.users(id) on delete cascade,
   data     jsonb not null default '{}'::jsonb
 );
+
+-- Pour une base créée avec une version précédente :
+alter table public.artists add column if not exists members jsonb not null default '[]'::jsonb;
 
 create index if not exists artists_user_idx on public.artists(user_id);
 create index if not exists tracks_artist_idx on public.tracks(artist_id);
