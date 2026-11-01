@@ -83,6 +83,12 @@ Ces valeurs peuvent être publiques : la sécurité vient de la connexion PKCE d
 
 Les mots-clés (remix, inst, live, ver., sped up…) sont cherchés **seulement entre parenthèses ou après « - »**. Ainsi, « LIVE MY LIFE » est gardée, mais « Psycho (Live) » est écartée. Les doublons (même titre sur un single puis sur un album) sont fusionnés en gardant la première sortie. La liste des mots-clés se modifie dans ⚙ Réglages ; après un changement, utilise **Tout revérifier** sur un artiste.
 
+### Sous-catégories, tri et organisation des artistes
+
+- **Sous-catégories** : par défaut GG, G, BG, B (les mêmes dans chaque onglet), modifiables dans ⚙ Réglages (une par ligne, vide = pas de sous-catégories). Dans un onglet, les sous-onglets « Tout · GG · G · BG · B » filtrent les artistes ; « Tout » les range en sections. Choisis la sous-catégorie d'un artiste dans le petit menu de sa carte ou sur sa page. « Récupérer les chansons » et « Playlists » ne traitent que les artistes affichés. Elles sont enregistrées avec tes réglages : rien à changer dans Supabase.
+- **Trier** : Mon ordre, Nom, Plus de chansons, Plus de chansons notées, Plus de coups de cœur (le choix est mémorisé).
+- **Organiser** : glisse les cartes (ou utilise les flèches ‹ ›) pour changer « Mon ordre ». Dans « Tout », glisser une carte dans une autre section change sa sous-catégorie. Coche des artistes, puis choisis un onglet et/ou une sous-catégorie et clique sur **Déplacer**. Sur téléphone, utilise les flèches (le glisser-déposer marche à la souris).
+
 ### Photos des membres (photocards)
 
 Sur la page d'un artiste, le bouton **Photos des membres** ouvre la gestion des photos (jusqu'à 12 membres, 25 photos par membre). Elles s'affichent en photocards sur les côtés de la page, placées au hasard. Sur un écran plus étroit (portable 13 po, téléphone), elles apparaissent en petite rangée sous les boutons. Sans photo, les côtés montrent les pochettes de l'artiste.
