@@ -5,6 +5,9 @@ import { createStore, trackKey, trackDefaults } from './store.js';
 import { DEFAULT_KEYWORDS, processDiscography, dedupeKey, playlistTracks, rankCompare, pickImage } from './fetcher.js';
 
 const DEFAULT_SETTINGS = {
+  subcategories: ['GG', 'G', 'BG', 'B'],   // sous-catégories, les mêmes dans chaque onglet
+  artistSub: {},                // artistId → sous-catégorie
+  artistSort: 'order',          // order | name | name-desc | songs | rated | favs
   keywords: DEFAULT_KEYWORDS,
   includeCompilations: false,
   dedupeMode: 'base',           // base | exact | none
@@ -12,6 +15,9 @@ const DEFAULT_SETTINGS = {
   playlistMinRating: 3,
   playlistName: '{artiste} · Tableau K-pop',
 };
+const SUB_HINTS = { GG: 'Groupes féminins', G: 'Solistes féminines', BG: 'Groupes masculins', B: 'Solistes masculins' };
+const SUB_NONE = '_';           // filtre « sans sous-catégorie »
+const ARTIST_SORTS = [['order', 'Mon ordre'], ['name', 'Nom (A → Z)'], ['name-desc', 'Nom (Z → A)'], ['songs', 'Plus de chansons'], ['rated', 'Plus de chansons notées'], ['favs', 'Plus de coups de cœur']];
 const MAX_MEMBERS = 12;
 const MAX_PHOTOS = 25;          // photos par membre (une est tirée au hasard à chaque visite)
 const IMG_RE = /\.(jpe?g|png|webp|gif|avif|bmp)$/i;
@@ -27,7 +33,10 @@ const state = {
   spotifyUser: null,
   job: null,
   view: { type: 'home' },
-  songFilters: { q: '', category: '', minRating: 0, fav: false, showHidden: false, sort: 'rating', limit: PAGE_SIZE },
+  catSub: {},                   // catId → dernière sous-catégorie affichée
+  organize: false,              // mode « Organiser » d'un onglet
+  orgPick: new Set(),           // artistes cochés en mode Organiser
+  songFilters: { q: '', category: '', sub: '', minRating: 0, fav: false, showHidden: false, sort: 'rating', limit: PAGE_SIZE },
   artistFilters: { q: '', showHidden: false, sort: 'rank' },
   members: new Map(),           // artistId → [{ name, photos: [src…] }] (chargé à la demande)
   membersModal: null,           // artistId dont on gère les photos
@@ -59,6 +68,10 @@ const ICON = {
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   butterfly: '<svg class="bf" viewBox="0 0 64 64" aria-hidden="true"><g class="bf-wings" fill="url(#bf-grad)"><path d="M31 31C26 15 10 7 6 15c-4 9 6 17 24 18z"/><path d="M33 31C38 15 54 7 58 15c4 9-6 17-24 18z"/><path d="M30 35c-11 1-18 9-15 16 3 6 11 2 15-11z"/><path d="M34 35c11 1 18 9 15 16-3 6-11 2-15-11z"/></g><rect x="30.6" y="24" width="2.8" height="24" rx="1.4" fill="#fff"/><path d="M32 25c-1-6-4-10-8-12M32 25c1-6 4-10 8-12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
   image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M21 16l-5-5-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+  left: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  right: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></g></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   shuffle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h3c4 0 6 10 10 10h4M3 17h3c1.6 0 2.8-1.6 3.8-3.5M14 9.5C15 8 16.2 7 18 7h2M17 4l3 3-3 3M17 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   folder: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
   music: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18a3 3 0 1 1-2-2.8V5l12-2v12a3 3 0 1 1-2-2.8V7.4L9 8.8z" fill="currentColor"/></svg>',
@@ -75,6 +88,59 @@ const sortedCategories = () => [...state.categories].sort(byPos);
 const artistsOf = catId => state.artists.filter(a => (a.category_id || 'none') === catId).sort(byPos);
 const tracksOf = artistId => [...state.tracks.values()].filter(t => t.artist_id === artistId);
 const orphanArtists = () => state.artists.filter(a => !a.category_id || !categoryById(a.category_id));
+
+// Sous-catégories (enregistrées dans les réglages : aucune colonne Supabase à ajouter).
+const subList = () => state.settings.subcategories || [];
+const subOf = a => state.settings.artistSub?.[a.id] || '';
+/** Sous-catégorie connue de l'artiste, ou SUB_NONE. */
+const bucketOf = a => subList().includes(subOf(a)) ? subOf(a) : SUB_NONE;
+const subLabel = sub => sub === SUB_NONE ? 'Sans sous-catégorie' : sub;
+const catHash = (catId, sub = state.catSub[catId] || '') => `#/cat/${catId}${sub ? `/${encodeURIComponent(sub)}` : ''}`;
+/** Artistes affichés dans la vue onglet (filtrés par la sous-catégorie choisie). */
+function viewArtists(v) {
+  const all = v.id === 'none' ? orphanArtists() : artistsOf(v.id);
+  return v.sub ? all.filter(a => bucketOf(a) === v.sub) : all;
+}
+async function setSub(ids, sub) {
+  const m = { ...(state.settings.artistSub || {}) };
+  for (const id of ids) { if (sub) m[id] = sub; else delete m[id]; }
+  state.settings = { ...state.settings, artistSub: m };
+  await store.saveSettings(state.settings);
+}
+/** Tous les artistes d'un onglet dans « mon ordre ». */
+const catList = catId => catId === 'none' ? orphanArtists().sort(byPos) : artistsOf(catId);
+function sortArtists(list, stats) {
+  const key = state.organize ? 'order' : (state.settings.artistSort || 'order');
+  const st = a => stats.get(a.id) || { total: 0, rated: 0, fav: 0 };
+  const byName = (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+  const cmp = {
+    name: byName,
+    'name-desc': (a, b) => byName(b, a),
+    songs: (a, b) => st(b).total - st(a).total || byName(a, b),
+    rated: (a, b) => st(b).rated - st(a).rated || byName(a, b),
+    favs: (a, b) => st(b).fav - st(a).fav || byName(a, b),
+  }[key] || byPos;
+  return [...list].sort(cmp);
+}
+/** Renumérote les positions d'une liste ordonnée et enregistre ce qui a changé. */
+async function renumber(list) {
+  const changed = [];
+  list.forEach((x, k) => { if (x.position !== k) { x.position = k; changed.push(x); } });
+  await Promise.all(changed.map(x => store.saveArtist(x)));
+}
+/** Place l'artiste id juste avant (ou après) targetId dans « mon ordre » de son onglet. */
+async function placeArtist(id, targetId, after) {
+  const a = artistById(id), t = artistById(targetId);
+  if (!a || !t || a === t) return;
+  const catId = t.category_id && categoryById(t.category_id) ? t.category_id : 'none';
+  const full = catList(catId).filter(x => x.id !== id);
+  full.splice(full.indexOf(t) + (after ? 1 : 0), 0, a);
+  if (catId !== 'none') a.category_id = catId;
+  await renumber(full);
+}
+function subOptions(selected) {
+  return `<option value="">—</option>${subList().map(x => `<option value="${esc(x)}" ${x === selected ? 'selected' : ''}>${esc(x)}</option>`).join('')}`;
+}
 
 function artistStats() {
   const m = new Map();
@@ -162,7 +228,7 @@ function confirmBox(title, text, confirm = 'Supprimer') {
 function renderTabs() {
   const v = state.view;
   const tabs = sortedCategories().map(c =>
-    `<a class="tab ${v.type === 'cat' && v.id === c.id ? 'active' : ''}" href="#/cat/${c.id}">${esc(c.name)}</a>`);
+    `<a class="tab ${v.type === 'cat' && v.id === c.id ? 'active' : ''}" href="${catHash(c.id)}">${esc(c.name)}</a>`);
   if (orphanArtists().length) tabs.push(`<a class="tab ${v.type === 'cat' && v.id === 'none' ? 'active' : ''}" href="#/cat/none">Sans onglet</a>`);
   $('#tabs').innerHTML = `${tabs.join('')}
     <button class="tab add" data-act="add-category" title="Nouvel onglet">${ICON.plus}<span class="sr">Nouvel onglet</span></button>
@@ -194,11 +260,12 @@ function render() {
   renderAccount();
   const v = state.view;
   const main = $('#main');
-  if (v.type === 'cat') main.innerHTML = viewCategory(v.id);
+  if (v.type === 'cat') main.innerHTML = viewCategory(v.id, v.sub);
   else if (v.type === 'artist') main.innerHTML = viewArtist(v.id);
   else if (v.type === 'songs') main.innerHTML = viewSongs();
   else if (v.type === 'settings') main.innerHTML = viewSettings();
   else main.innerHTML = viewHome();
+  document.body.classList.toggle('organizing', state.organize && v.type === 'cat');
   renderDecor();
 }
 
@@ -220,37 +287,82 @@ function viewHome() {
   </section>`;
 }
 
-function viewCategory(catId) {
+function artistCard(a, stats) {
+  const s = stats.get(a.id) || { total: 0, rated: 0, fav: 0 };
+  const org = state.organize;
+  const picked = state.orgPick.has(a.id);
+  return `<article class="card artist-card ${a.excluded ? 'excluded' : ''}${org ? ' org' : ''}${picked ? ' picked' : ''}" data-id="${a.id}" ${org ? 'draggable="true"' : ''}>
+      ${org ? `<label class="org-pick" title="Sélectionner"><input type="checkbox" data-act="org-pick" data-id="${a.id}" ${picked ? 'checked' : ''}><span class="sr">Sélectionner ${esc(a.name)}</span></label>
+      <div class="org-arrows">
+        <button class="icon-btn" data-act="org-move" data-id="${a.id}" data-dir="-1" aria-label="Avancer ${esc(a.name)}">${ICON.left}</button>
+        <span class="org-grip" aria-hidden="true">${ICON.grip}</span>
+        <button class="icon-btn" data-act="org-move" data-id="${a.id}" data-dir="1" aria-label="Reculer ${esc(a.name)}">${ICON.right}</button>
+      </div>` : ''}
+      <a class="art" href="#/artist/${a.id}" ${org ? 'draggable="false"' : ''}>${cover(a.image, 'art-img')}</a>
+      <div class="card-body">
+        <a class="name" href="#/artist/${a.id}">${esc(a.name)}</a>
+        <div class="meta">${a.last_fetched_at ? `${plural(s.total, 'chanson')}${s.rated ? ` · <span class="gold">★ ${s.rated}</span>` : ''}${s.fav ? ` · <span class="pink">♥ ${s.fav}</span>` : ''}` : '<span class="muted">Pas encore récupéré</span>'}</div>
+        <div class="card-foot">
+          <label class="check small"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure</label>
+          ${subList().length ? `<select class="sub-select" data-act="artist-sub" data-id="${a.id}" aria-label="Sous-catégorie de ${esc(a.name)}" title="Sous-catégorie">${subOptions(subOf(a))}</select>` : ''}
+        </div>
+      </div>
+    </article>`;
+}
+
+function viewCategory(catId, sub = '') {
   const cat = catId === 'none' ? { id: 'none', name: 'Sans onglet' } : categoryById(catId);
   if (!cat) return viewHome();
-  const artists = catId === 'none' ? orphanArtists() : artistsOf(catId);
+  const all = catId === 'none' ? orphanArtists() : artistsOf(catId);
+  const subs = subList();
+  if (sub && sub !== SUB_NONE && !subs.includes(sub)) sub = '';
   const stats = artistStats();
+  const artists = sortArtists(sub ? all.filter(a => bucketOf(a) === sub) : all, stats);
   const totals = artists.reduce((acc, a) => {
     const s = stats.get(a.id); if (s) { acc.t += s.total; acc.r += s.rated; } return acc;
   }, { t: 0, r: 0 });
   const active = artists.filter(a => !a.excluded).length;
-  const cards = artists.map(a => {
-    const s = stats.get(a.id) || { total: 0, rated: 0, fav: 0 };
-    return `<article class="card artist-card ${a.excluded ? 'excluded' : ''}">
-      <a class="art" href="#/artist/${a.id}">${cover(a.image, 'art-img')}</a>
-      <div class="card-body">
-        <a class="name" href="#/artist/${a.id}">${esc(a.name)}</a>
-        <div class="meta">${a.last_fetched_at ? `${plural(s.total, 'chanson')}${s.rated ? ` · <span class="gold">★ ${s.rated}</span>` : ''}${s.fav ? ` · <span class="pink">♥ ${s.fav}</span>` : ''}` : '<span class="muted">Pas encore récupéré</span>'}</div>
-        <label class="check small"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure</label>
-      </div>
-    </article>`;
-  }).join('');
+
+  // Sous-onglets : Tout · GG · G · BG · B · (Sans sous-catégorie)
+  const count = b => all.filter(a => bucketOf(a) === b).length;
+  const none = count(SUB_NONE);
+  const subtabs = subs.length ? `<nav class="subtabs" aria-label="Sous-catégories">
+      <a class="subtab ${!sub ? 'active' : ''}" href="${catHash(catId, '')}">Tout <span>${all.length}</span></a>
+      ${subs.map(x => `<a class="subtab ${sub === x ? 'active' : ''}" href="${catHash(catId, x)}" title="${esc(SUB_HINTS[x] || x)}">${esc(x)} <span>${count(x)}</span></a>`).join('')}
+      ${none && none < all.length ? `<a class="subtab muted-tab ${sub === SUB_NONE ? 'active' : ''}" href="${catHash(catId, SUB_NONE)}">Sans sous-catégorie <span>${none}</span></a>` : ''}
+    </nav>` : '';
+
+  // « Tout » : une section par sous-catégorie dès qu'au moins un artiste est classé.
+  let body;
+  if (!artists.length) {
+    body = `<div class="empty">
+      <p>${sub ? `Aucun artiste « ${esc(subLabel(sub))} » dans cet onglet.` : 'Aucun artiste dans cet onglet pour l\u2019instant.'}</p>
+      ${catId !== 'none' ? `<button class="primary" data-act="add-artist">${ICON.plus}Ajouter un artiste</button>` : ''}</div>`;
+  } else if (!sub && subs.length && none < all.length) {
+    body = [...subs, SUB_NONE].map(b => {
+      const list = sortArtists(all.filter(a => bucketOf(a) === b), stats);
+      if (!list.length) return '';
+      return `<section class="sub-section">
+        <h2 class="sub-title"><a href="${catHash(catId, b)}">${esc(subLabel(b))}</a> <span class="pill-count">${list.length}</span>
+          ${SUB_HINTS[b] ? `<span class="muted small">${esc(SUB_HINTS[b])}</span>` : ''}</h2>
+        <div class="grid">${list.map(a => artistCard(a, stats)).join('')}</div></section>`;
+    }).join('');
+  } else {
+    body = `<div class="grid">${artists.map(a => artistCard(a, stats)).join('')}</div>`;
+  }
+
   const cats = sortedCategories();
   const idx = cats.findIndex(c => c.id === catId);
+  const scope = sub ? ` « ${subLabel(sub)} »` : '';
   return `<section class="view-head">
       <div>
-        <h1>${esc(cat.name)}</h1>
+        <h1>${esc(cat.name)}${sub ? ` <span class="h1-sub">· ${esc(subLabel(sub))}</span>` : ''}</h1>
         <p class="sub">${plural(artists.length, 'artiste')} · ${plural(totals.t, 'chanson')} · ${totals.r} notée${totals.r > 1 ? 's' : ''}</p>
       </div>
       <div class="actions">
         ${catId !== 'none' ? `<button class="primary" data-act="add-artist">${ICON.plus}Artiste</button>` : ''}
-        <button data-act="fetch-cat" ${active ? '' : 'disabled'} title="Récupère les nouvelles sorties de tous les artistes non exclus">${ICON.refresh}Récupérer les chansons</button>
-        <button data-act="playlists-cat" ${active ? '' : 'disabled'} title="Crée ou met à jour une playlist Spotify par artiste">${ICON.list}Playlists</button>
+        <button data-act="fetch-cat" ${active ? '' : 'disabled'} title="Récupère les nouvelles sorties de tous les artistes${scope} non exclus">${ICON.refresh}Récupérer les chansons</button>
+        <button data-act="playlists-cat" ${active ? '' : 'disabled'} title="Crée ou met à jour une playlist Spotify par artiste${scope}">${ICON.list}Playlists</button>
         ${catId !== 'none' ? `<details class="menu"><summary aria-label="Plus d'options">⋯</summary><div class="menu-list">
           <button data-act="rename-cat">Renommer l'onglet</button>
           ${idx > 0 ? `<button data-act="move-cat" data-dir="-1">Déplacer vers la gauche</button>` : ''}
@@ -258,9 +370,35 @@ function viewCategory(catId) {
           <button class="danger-text" data-act="delete-cat">Supprimer l'onglet</button></div></details>` : ''}
       </div>
     </section>
-    ${artists.length ? `<div class="grid">${cards}</div>` : `<div class="empty">
-      <p>Aucun artiste dans cet onglet pour l'instant.</p>
-      <button class="primary" data-act="add-artist">${ICON.plus}Ajouter un artiste</button></div>`}`;
+    <div class="cat-bar">
+      ${subtabs}
+      ${all.length ? `<div class="cat-tools">
+        ${state.organize ? '' : `<label class="inline">Trier <select data-act="artist-sort" aria-label="Trier les artistes">
+          ${ARTIST_SORTS.map(([v, l]) => `<option value="${v}" ${(state.settings.artistSort || 'order') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
+        <button class="${state.organize ? 'primary' : ''}" data-act="org-toggle" title="Changer l'ordre, l'onglet ou la sous-catégorie des artistes">${state.organize ? `${ICON.check}Terminé` : `${ICON.grip}Organiser`}</button>
+      </div>` : ''}
+    </div>
+    ${state.organize && all.length ? orgBar(catId, artists) : ''}
+    ${body}`;
+}
+
+function orgBar(catId, visible) {
+  const n = state.orgPick.size;
+  const cats = sortedCategories();
+  return `<div class="org-bar card">
+    <p class="small"><strong>Mode Organiser :</strong> glisse les cartes (ou utilise les flèches) pour changer « Mon ordre ». Dans « Tout », glisser une carte dans une autre section change sa sous-catégorie.
+      Coche des artistes pour les déplacer vers un autre onglet ou une autre sous-catégorie.</p>
+    <div class="row wrap">
+      <strong class="org-count">${n ? plural(n, 'artiste sélectionné', 'artistes sélectionnés') : 'Aucun artiste sélectionné'}</strong>
+      <button class="link small" data-act="org-all" data-ids="${visible.map(a => a.id).join(',')}">Tout cocher</button>
+      ${n ? `<button class="link small" data-act="org-none">Tout décocher</button>` : ''}
+      <span class="grow"></span>
+      <label class="inline">Onglet <select id="org-cat">${cats.map(c => `<option value="${c.id}" ${c.id === catId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      ${subList().length ? `<label class="inline">Sous-catégorie <select id="org-sub"><option value="__keep">(inchangée)</option><option value="">—</option>
+        ${subList().map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></label>` : ''}
+      <button class="primary" data-act="org-apply" ${n ? '' : 'disabled'}>Déplacer</button>
+    </div>
+  </div>`;
 }
 
 function sortTracks(list, sort) {
@@ -315,7 +453,9 @@ function viewArtist(id) {
   const cat = categoryById(a.category_id);
   const catOptions = sortedCategories().map(c => `<option value="${c.id}" ${c.id === a.category_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
   const spotifyUrl = `https://open.spotify.com/artist/${encodeURIComponent(a.spotify_id)}`;
-  return `<a class="back" href="#/cat/${cat ? cat.id : 'none'}">← ${esc(cat?.name || 'Sans onglet')}</a>
+  const backId = cat ? cat.id : 'none';
+  const backSub = state.catSub[backId];
+  return `<a class="back" href="${catHash(backId)}">← ${esc(cat?.name || 'Sans onglet')}${backSub ? ` · ${esc(subLabel(backSub))}` : ''}</a>
     <section class="artist-hero">
       ${cover(a.image, 'hero-img')}
       <div class="hero-body">
@@ -333,6 +473,7 @@ function viewArtist(id) {
         <div class="hero-members" id="hero-members" aria-hidden="true"></div>
         <div class="row wrap small">
           <label class="inline">Onglet <select data-act="artist-category" data-id="${a.id}">${catOptions}</select></label>
+          ${subList().length ? `<label class="inline">Sous-catégorie <select data-act="artist-sub" data-id="${a.id}">${subOptions(subOf(a))}</select></label>` : ''}
           <label class="check"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure des récupérations groupées</label>
           <button class="link danger-text" data-act="delete-artist" data-id="${a.id}">${ICON.trash}Supprimer l'artiste</button>
         </div>
@@ -360,6 +501,10 @@ function viewSongs() {
       const a = artistById(t.artist_id);
       if ((a?.category_id || 'none') !== f.category) return false;
     }
+    if (f.sub) {
+      const a = artistById(t.artist_id);
+      if (!a || bucketOf(a) !== f.sub) return false;
+    }
     return matchesQuery(t, f.q);
   });
   const list = sortTracks(filtered, f.sort);
@@ -371,6 +516,9 @@ function viewSongs() {
     <div class="toolbar">
       <input type="search" placeholder="Titre, album, artiste, note…" value="${esc(f.q)}" data-filter="songs" data-key="q" aria-label="Rechercher">
       <select data-filter="songs" data-key="category" aria-label="Onglet">${catOptions}</select>
+      ${subList().length ? `<select data-filter="songs" data-key="sub" aria-label="Sous-catégorie">
+        ${[['', 'Toutes les sous-catégories'], ...subList().map(x => [x, SUB_HINTS[x] ? `${x} · ${SUB_HINTS[x]}` : x]), [SUB_NONE, 'Sans sous-catégorie']]
+          .map(([v, l]) => `<option value="${esc(v)}" ${f.sub === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>` : ''}
       <select data-filter="songs" data-key="minRating" aria-label="Note minimale">
         ${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${f.minRating === n ? 'selected' : ''}>${n ? `★ ${n} et +` : 'Toutes les notes'}</option>`).join('')}</select>
       <label class="inline">Trier <select data-filter="songs" data-key="sort">
@@ -413,6 +561,11 @@ function viewSettings() {
     </section>
 
     <form class="card pad form" id="settings-form">
+      <h2>Sous-catégories</h2>
+      <label>Les mêmes dans chaque onglet <span class="muted small">(une par ligne, dans l'ordre d'affichage)</span>
+        <textarea name="subcategories" rows="4">${esc(subList().join('\n'))}</textarea></label>
+      <p class="small muted">Laisse vide pour ne pas utiliser de sous-catégories. Si tu renommes une sous-catégorie, ses artistes passent dans « Sans sous-catégorie » : reclasse-les depuis leur carte.</p>
+
       <h2>Récupération des chansons</h2>
       <label>Mots-clés à écarter <span class="muted small">(un par ligne — cherchés seulement entre parenthèses ou après « - »)</span>
         <textarea name="keywords" rows="7">${esc((s.keywords || []).join('\n'))}</textarea></label>
@@ -511,8 +664,8 @@ function decorSource() {
     return { key: `a:${v.id}:c${covers.length}`, shape: 'square', items: covers.map(src => ({ src })) };
   }
   if (v.type === 'cat') {
-    const list = (v.id === 'none' ? orphanArtists() : artistsOf(v.id)).filter(a => a.image);
-    return { key: `c:${v.id}:${list.length}`, shape: 'square', items: list.map(a => ({ src: a.image, label: a.name })) };
+    const list = viewArtists(v).filter(a => a.image);
+    return { key: `c:${v.id}:${v.sub}:${list.length}`, shape: 'square', items: list.map(a => ({ src: a.image, label: a.name })) };
   }
   if (v.type === 'songs') {
     const favs = [...new Set([...state.tracks.values()].filter(t => t.favorite && t.album_image).map(t => t.album_image))];
@@ -718,8 +871,15 @@ async function saveMembers(id, list) {
 // ───────────────────────── Navigation ─────────────────────────
 function route() {
   state.visit++;
-  const [, type, id] = (location.hash || '#/').split('/');
-  if (type === 'cat' && (id === 'none' || categoryById(id))) state.view = { type: 'cat', id };
+  const [, type, id, rawSub] = (location.hash || '#/').split('/');
+  if (type === 'cat' && (id === 'none' || categoryById(id))) {
+    let sub = '';
+    try { sub = decodeURIComponent(rawSub || ''); } catch { sub = ''; }
+    if (sub && sub !== SUB_NONE && !subList().includes(sub)) sub = '';
+    state.catSub[id] = sub;
+    if (state.view.type !== 'cat' || state.view.id !== id) { state.organize = false; state.orgPick.clear(); }
+    state.view = { type: 'cat', id, sub };
+  }
   else if (type === 'artist' && artistById(id)) {
     if (state.view.type !== 'artist' || state.view.id !== id) state.artistFilters = { q: '', showHidden: false, sort: 'rank' };
     state.view = { type: 'artist', id };
@@ -727,8 +887,9 @@ function route() {
   else if (type === 'settings') state.view = { type: 'settings' };
   else {
     const first = sortedCategories()[0];
-    state.view = first ? { type: 'cat', id: first.id } : { type: 'home' };
+    state.view = first ? { type: 'cat', id: first.id, sub: state.catSub[first.id] || '' } : { type: 'home' };
   }
+  if (state.view.type !== 'cat') { state.organize = false; state.orgPick.clear(); }
   if (!state.job) hideProgress();
   render();
   window.scrollTo(0, 0);
@@ -761,7 +922,10 @@ function openAddArtist(catId) {
   openModal(`<div class="form">
       <div class="row between"><h2>Ajouter un artiste</h2><button class="icon-btn" data-act="modal-close" aria-label="Fermer">${ICON.x}</button></div>
       <input type="search" id="artist-q" placeholder="Nom de l'artiste ou lien Spotify…" autocomplete="off">
-      <label class="check small"><input type="checkbox" id="artist-fetch" checked> Récupérer ses chansons tout de suite</label>
+      <div class="row wrap">
+        ${subList().length ? `<label class="inline">Sous-catégorie <select id="artist-sub">${subOptions(state.view.type === 'cat' && state.view.sub !== SUB_NONE ? state.view.sub : '')}</select></label>` : ''}
+        <label class="check small"><input type="checkbox" id="artist-fetch" checked> Récupérer ses chansons tout de suite</label>
+      </div>
       <div id="artist-results" class="results"><p class="muted small">Tape un nom pour chercher sur Spotify.</p></div>
     </div>`, {
     wide: true,
@@ -784,7 +948,7 @@ function openAddArtist(catId) {
         out.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', guard(async () => {
           const it = items.find(x => x.id === b.dataset.pick);
           b.disabled = true;
-          await addArtist(it, catId, m.querySelector('#artist-fetch').checked);
+          await addArtist(it, catId, m.querySelector('#artist-fetch').checked, m.querySelector('#artist-sub')?.value || '');
         })));
       };
       const search = guard(async () => {
@@ -801,7 +965,7 @@ function openAddArtist(catId) {
   });
 }
 
-async function addArtist(it, catId, fetchNow) {
+async function addArtist(it, catId, fetchNow, sub = '') {
   const a = {
     id: uuid(), category_id: catId, spotify_id: it.id, name: it.name, image: pickImage(it.images),
     excluded: false, playlist_id: null, album_ids: [], last_fetched_at: null, note: null,
@@ -809,6 +973,7 @@ async function addArtist(it, catId, fetchNow) {
   };
   await store.saveArtist(a);
   state.artists.push(a);
+  if (sub) await setSub([a.id], sub);
   closeModal();
   toast(`${a.name} ajouté.`);
   render();
@@ -822,8 +987,9 @@ async function deleteArtist(id) {
   if (!await confirmBox(`Supprimer ${a.name} ?`, `Ses ${n} chansons, notes et classements seront supprimés du site (la playlist Spotify, elle, reste).`)) return;
   await store.deleteArtist(id);
   state.artists = state.artists.filter(x => x.id !== id);
+  if (subOf(a)) await setSub([id], '');
   for (const [k, t] of state.tracks) if (t.artist_id === id) state.tracks.delete(k);
-  go(`#/cat/${a.category_id || 'none'}`);
+  go(catHash(a.category_id || 'none'));
 }
 
 async function saveArtist(a) { await store.saveArtist(a); }
@@ -1027,11 +1193,10 @@ const actions = {
   },
   'add-artist': async () => openAddArtist(state.view.id),
   'fetch-cat': async () => {
-    const list = (state.view.id === 'none' ? orphanArtists() : artistsOf(state.view.id)).filter(a => !a.excluded);
-    await runFetch(list);
+    await runFetch(viewArtists(state.view).filter(a => !a.excluded));
   },
   'playlists-cat': async () => {
-    const list = (state.view.id === 'none' ? orphanArtists() : artistsOf(state.view.id)).filter(a => !a.excluded && tracksOf(a.id).length);
+    const list = viewArtists(state.view).filter(a => !a.excluded && tracksOf(a.id).length);
     if (!list.length) { toast('Aucun artiste avec des chansons dans cet onglet.', 'error'); return; }
     await runPlaylists(list);
   },
@@ -1048,6 +1213,37 @@ const actions = {
   'export': async () => exportJson(),
   'more-songs': async () => { state.songFilters.limit += PAGE_SIZE; render(); },
   'members': async el => openMembers(el.dataset.id),
+  'org-toggle': async () => { state.organize = !state.organize; state.orgPick.clear(); render(); },
+  'org-all': async el => { el.dataset.ids.split(',').filter(Boolean).forEach(id => state.orgPick.add(id)); render(); },
+  'org-none': async () => { state.orgPick.clear(); render(); },
+  'org-move': async el => {
+    // Échange avec la carte voisine affichée (dans la même grille / section).
+    const card = el.closest('.artist-card');
+    const dir = Number(el.dataset.dir);
+    const other = dir < 0 ? card.previousElementSibling : card.nextElementSibling;
+    if (!other?.dataset.id) return;
+    await placeArtist(el.dataset.id, other.dataset.id, dir > 0);
+    render();
+    document.querySelector(`.artist-card[data-id="${CSS.escape(el.dataset.id)}"] [data-act="org-move"][data-dir="${dir}"]`)?.focus();
+  },
+  'org-apply': async () => {
+    const ids = [...state.orgPick].filter(artistById);
+    if (!ids.length) return;
+    const catId = $('#org-cat').value;
+    const sub = $('#org-sub')?.value ?? '__keep';
+    let end = catList(catId).length;
+    const moved = [];
+    for (const id of ids) {
+      const a = artistById(id);
+      if (a.category_id !== catId) { a.category_id = catId; a.position = end++; moved.push(a); }
+    }
+    await Promise.all(moved.map(a => store.saveArtist(a)));
+    if (sub !== '__keep') await setSub(ids, sub);
+    state.orgPick.clear();
+    const where = `${categoryById(catId)?.name || ''}${sub !== '__keep' ? ` · ${sub || 'sans sous-catégorie'}` : ''}`;
+    toast(`${plural(ids.length, 'artiste déplacé', 'artistes déplacés')} vers ${where}.`);
+    render();
+  },
   'member-del': async el => {
     const id = state.membersModal;
     const list = [...(state.members.get(id) || [])];
@@ -1108,6 +1304,24 @@ document.addEventListener('change', guard(async e => {
   } else if (act === 'toggle-exclude') {
     const a = artistById(el.dataset.id); a.excluded = el.checked; await saveArtist(a);
     el.closest('.artist-card')?.classList.toggle('excluded', el.checked);
+  } else if (act === 'org-pick') {
+    if (el.checked) state.orgPick.add(el.dataset.id); else state.orgPick.delete(el.dataset.id);
+    el.closest('.artist-card')?.classList.toggle('picked', el.checked);
+    const bar = document.querySelector('.org-bar');
+    if (bar) {
+      const n = state.orgPick.size;
+      bar.querySelector('.org-count').textContent = n ? plural(n, 'artiste sélectionné', 'artistes sélectionnés') : 'Aucun artiste sélectionné';
+      bar.querySelector('[data-act="org-apply"]').disabled = !n;
+    }
+  } else if (act === 'artist-sort') {
+    state.settings = { ...state.settings, artistSort: el.value };
+    render();
+    await store.saveSettings(state.settings);
+  } else if (act === 'artist-sub') {
+    const a = artistById(el.dataset.id);
+    await setSub([a.id], el.value);
+    toast(el.value ? `${a.name} → ${el.value}` : `${a.name} : sans sous-catégorie`);
+    if (state.view.type === 'cat') render();
   } else if (act === 'artist-category') {
     const a = artistById(el.dataset.id); a.category_id = el.value; a.position = artistsOf(el.value).length;
     await saveArtist(a); toast(`${a.name} déplacé dans « ${categoryById(el.value)?.name} ».`); render();
@@ -1217,6 +1431,7 @@ document.addEventListener('submit', guard(async e => {
     const f = new FormData(e.target);
     state.settings = {
       ...state.settings,
+      subcategories: [...new Set(String(f.get('subcategories') || '').split(/[\n,]/).map(x => x.trim().slice(0, 20)).filter(Boolean))],
       keywords: String(f.get('keywords') || '').split(/[\n,]/).map(s => s.trim()).filter(Boolean),
       includeCompilations: f.get('includeCompilations') === 'on',
       dedupeMode: ['base', 'exact', 'none'].includes(f.get('dedupeMode')) ? f.get('dedupeMode') : 'base',
@@ -1232,6 +1447,45 @@ document.addEventListener('submit', guard(async e => {
     await store.signIn(String(f.get('email')), String(f.get('password')));
     await start();
   }
+}));
+
+// Glisser-déposer des cartes en mode Organiser (ordinateur ; sur téléphone : flèches).
+let dragId = null;
+document.addEventListener('dragstart', e => {
+  const card = e.target.closest?.('.artist-card.org');
+  if (!card) return;
+  dragId = card.dataset.id;
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragId);
+});
+document.addEventListener('dragend', () => {
+  dragId = null;
+  document.querySelectorAll('.dragging, .drop-before, .drop-after').forEach(x => x.classList.remove('dragging', 'drop-before', 'drop-after'));
+});
+const dropSide = (card, e) => { const r = card.getBoundingClientRect(); return e.clientX > r.left + r.width / 2; };
+document.addEventListener('dragover', e => {
+  const card = dragId && e.target.closest?.('.artist-card.org');
+  if (!card || card.dataset.id === dragId) return;
+  e.preventDefault();
+  const after = dropSide(card, e);
+  document.querySelectorAll('.drop-before, .drop-after').forEach(x => x !== card && x.classList.remove('drop-before', 'drop-after'));
+  card.classList.toggle('drop-after', after);
+  card.classList.toggle('drop-before', !after);
+});
+document.addEventListener('drop', guard(async e => {
+  const card = dragId && e.target.closest?.('.artist-card.org');
+  if (!card || card.dataset.id === dragId) return;
+  e.preventDefault();
+  const id = dragId, target = artistById(card.dataset.id), a = artistById(id);
+  await placeArtist(id, target.id, dropSide(card, e));
+  // Déposé dans une autre section de « Tout » : prend sa sous-catégorie.
+  if (card.closest('.sub-section') && bucketOf(a) !== bucketOf(target)) {
+    const b = bucketOf(target);
+    await setSub([id], b === SUB_NONE ? '' : b);
+    toast(`${a.name} → ${subLabel(b)}`);
+  }
+  render();
 }));
 
 window.addEventListener('hashchange', route);
