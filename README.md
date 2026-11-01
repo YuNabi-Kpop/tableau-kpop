@@ -86,6 +86,7 @@ Les mots-clés (remix, inst, live, ver., sped up…) sont cherchés **seulement 
 ### Sous-catégories, tri et organisation des artistes
 
 - **Sous-catégories** : par défaut GG, G, BG, B (les mêmes dans chaque onglet), modifiables dans ⚙ Réglages (une par ligne, vide = pas de sous-catégories). Dans un onglet, les sous-onglets « Tout · GG · G · BG · B » filtrent les artistes ; « Tout » les range en sections. Choisis la sous-catégorie d'un artiste dans le petit menu de sa carte ou sur sa page. « Récupérer les chansons » et « Playlists » ne traitent que les artistes affichés. Elles sont enregistrées avec tes réglages : rien à changer dans Supabase.
+- **Groupe d'origine** : sur la page d'un artiste (soliste, sous-unité…), remplis « Groupe d'origine » (plusieurs : sépare-les par une virgule). Il s'affiche sous son nom ; si le groupe est aussi dans ton site, le nom devient un lien, et la page du groupe affiche « En solo : … ». La recherche de « Toutes mes chansons » le prend en compte.
 - **Trier** : Mon ordre, Nom, Plus de chansons, Plus de chansons notées, Plus de coups de cœur (le choix est mémorisé).
 - **Organiser** : glisse les cartes (ou utilise les flèches ‹ ›) pour changer « Mon ordre ». Dans « Tout », glisser une carte dans une autre section change sa sous-catégorie. Coche des artistes, puis choisis un onglet et/ou une sous-catégorie et clique sur **Déplacer**. Sur téléphone, utilise les flèches (le glisser-déposer marche à la souris).
 

@@ -68,6 +68,7 @@ const ICON = {
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   butterfly: '<svg class="bf" viewBox="0 0 64 64" aria-hidden="true"><g class="bf-wings" fill="url(#bf-grad)"><path d="M31 31C26 15 10 7 6 15c-4 9 6 17 24 18z"/><path d="M33 31C38 15 54 7 58 15c4 9-6 17-24 18z"/><path d="M30 35c-11 1-18 9-15 16 3 6 11 2 15-11z"/><path d="M34 35c11 1 18 9 15 16-3 6-11 2-15-11z"/></g><rect x="30.6" y="24" width="2.8" height="24" rx="1.4" fill="#fff"/><path d="M32 25c-1-6-4-10-8-12M32 25c1-6 4-10 8-12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
   image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M21 16l-5-5-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="currentColor"/></svg>',
   left: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   right: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></g></svg>',
@@ -138,6 +139,21 @@ async function placeArtist(id, targetId, after) {
   if (catId !== 'none') a.category_id = catId;
   await renumber(full);
 }
+// Groupe d'origine (soliste, sous-unité…) : texte libre dans la colonne « note » de l'artiste.
+const normName = x => String(x || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const originParts = a => String(a?.note || '').split(/\s*[,/;]\s*/).map(x => x.trim()).filter(Boolean);
+/** « TWICE, MISAMO » → liens vers les artistes du site quand le nom correspond. */
+function originHtml(a) {
+  return originParts(a).map(part => {
+    const g = state.artists.find(x => x.id !== a.id && normName(x.name) === normName(part));
+    return g ? `<a href="#/artist/${g.id}">${esc(g.name)}</a>` : esc(part);
+  }).join(', ');
+}
+/** Texte simple du groupe d'origine, avec le vrai nom des artistes du site. */
+const originText = a => originParts(a).map(part => state.artists.find(x => x.id !== a.id && normName(x.name) === normName(part))?.name || part).join(', ');
+/** Artistes dont le groupe d'origine est cet artiste (membres en solo). */
+const solosOf = g => state.artists.filter(a => a.id !== g.id && originParts(a).some(p => normName(p) === normName(g.name))).sort((x, y) => x.name.localeCompare(y.name, 'fr'));
+
 function subOptions(selected) {
   return `<option value="">—</option>${subList().map(x => `<option value="${esc(x)}" ${x === selected ? 'selected' : ''}>${esc(x)}</option>`).join('')}`;
 }
@@ -301,6 +317,7 @@ function artistCard(a, stats) {
       <a class="art" href="#/artist/${a.id}" ${org ? 'draggable="false"' : ''}>${cover(a.image, 'art-img')}</a>
       <div class="card-body">
         <a class="name" href="#/artist/${a.id}">${esc(a.name)}</a>
+        ${a.note ? `<div class="origin" title="Groupe d'origine">${ICON.heart}${originHtml(a)}</div>` : ''}
         <div class="meta">${a.last_fetched_at ? `${plural(s.total, 'chanson')}${s.rated ? ` · <span class="gold">★ ${s.rated}</span>` : ''}${s.fav ? ` · <span class="pink">♥ ${s.fav}</span>` : ''}` : '<span class="muted">Pas encore récupéré</span>'}</div>
         <div class="card-foot">
           <label class="check small"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure</label>
@@ -415,7 +432,8 @@ function sortTracks(list, sort) {
 
 function matchesQuery(t, q) {
   if (!q) return true;
-  const hay = `${t.name} ${t.album_name || ''} ${t.note || ''} ${artistById(t.artist_id)?.name || ''}`.toLowerCase();
+  const ar = artistById(t.artist_id);
+  const hay = `${t.name} ${t.album_name || ''} ${t.note || ''} ${ar?.name || ''} ${ar?.note || ''}`.toLowerCase();
   return q.toLowerCase().split(/\s+/).every(w => hay.includes(w));
 }
 
@@ -429,7 +447,7 @@ function trackRow(t, { showArtist = false } = {}) {
     ${cover(t.album_image)}
     <div class="tinfo">
       <div class="tname" title="${esc(t.name)}">${esc(t.name)}</div>
-      <div class="tsub">${a ? `<a href="#/artist/${a.id}">${esc(a.name)}</a> · ` : ''}${esc(t.album_name || '')}${year ? ` · ${year}` : ''}</div>
+      <div class="tsub">${a ? `<a href="#/artist/${a.id}">${esc(a.name)}</a>${a.note ? ` <span class="muted">(${esc(originText(a))})</span>` : ''} · ` : ''}${esc(t.album_name || '')}${year ? ` · ${year}` : ''}</div>
     </div>
     <div class="stars" role="group" aria-label="Note">${stars}</div>
     <button class="fav ${t.favorite ? 'on' : ''}" data-act="fav" title="Coup de cœur" aria-pressed="${!!t.favorite}">♥</button>
@@ -460,6 +478,8 @@ function viewArtist(id) {
       ${cover(a.image, 'hero-img')}
       <div class="hero-body">
         <h1>${esc(a.name)}</h1>
+        ${a.note ? `<p class="origin big">${ICON.heart}de ${originHtml(a)}</p>` : ''}
+        ${solosOf(a).length ? `<p class="origin big">${ICON.heart}En solo : ${solosOf(a).map(x => `<a href="#/artist/${x.id}">${esc(x.name)}</a>`).join(', ')}</p>` : ''}
         <p class="sub">${plural(all.length - hiddenCount, 'chanson')}${hiddenCount ? ` · ${hiddenCount} masquée${hiddenCount > 1 ? 's' : ''}` : ''}
           ${a.last_fetched_at ? ` · mis à jour le ${fmtDate(a.last_fetched_at)}` : ' · jamais récupéré'}</p>
         <div class="actions">
@@ -474,6 +494,8 @@ function viewArtist(id) {
         <div class="row wrap small">
           <label class="inline">Onglet <select data-act="artist-category" data-id="${a.id}">${catOptions}</select></label>
           ${subList().length ? `<label class="inline">Sous-catégorie <select data-act="artist-sub" data-id="${a.id}">${subOptions(subOf(a))}</select></label>` : ''}
+          <label class="inline">Groupe d'origine <input class="origin-input" data-act="artist-origin" data-id="${a.id}" value="${esc(a.note || '')}" placeholder="ex. TWICE" maxlength="80" list="artist-names" title="Pour un soliste ou une sous-unité. Plusieurs groupes : sépare-les par une virgule."></label>
+          <datalist id="artist-names">${[...state.artists].filter(x => x.id !== a.id).sort((x, y) => x.name.localeCompare(y.name, 'fr')).map(x => `<option value="${esc(x.name)}">`).join('')}</datalist>
           <label class="check"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure des récupérations groupées</label>
           <button class="link danger-text" data-act="delete-artist" data-id="${a.id}">${ICON.trash}Supprimer l'artiste</button>
         </div>
@@ -1317,6 +1339,14 @@ document.addEventListener('change', guard(async e => {
     state.settings = { ...state.settings, artistSort: el.value };
     render();
     await store.saveSettings(state.settings);
+  } else if (act === 'artist-origin') {
+    const a = artistById(el.dataset.id);
+    const v = el.value.trim().replace(/\s+/g, ' ');
+    if ((a.note || '') === v) return;
+    a.note = v || null;
+    await saveArtist(a);
+    toast(v ? `${a.name} : groupe d'origine « ${v} »` : `${a.name} : groupe d'origine retiré`);
+    render();
   } else if (act === 'artist-sub') {
     const a = artistById(el.dataset.id);
     await setSub([a.id], el.value);
