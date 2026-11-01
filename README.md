@@ -85,9 +85,13 @@ Les mots-clés (remix, inst, live, ver., sped up…) sont cherchés **seulement 
 
 ### Photos des membres (photocards)
 
-Sur la page d'un artiste, le bouton **Photos des membres** permet d'ajouter jusqu'à 12 photos (fichiers de ton appareil ou liens d'images), avec un nom facultatif. Elles s'affichent en photocards sur les côtés de la page, placées au hasard à chaque visite. Sur un écran plus étroit (portable 13 po, téléphone), elles apparaissent en petite rangée sous les boutons. Sans photo, les côtés montrent les pochettes de l'artiste.
+Sur la page d'un artiste, le bouton **Photos des membres** ouvre la gestion des photos (jusqu'à 12 membres, 25 photos par membre). Elles s'affichent en photocards sur les côtés de la page, placées au hasard. Sur un écran plus étroit (portable 13 po, téléphone), elles apparaissent en petite rangée sous les boutons. Sans photo, les côtés montrent les pochettes de l'artiste.
 
-Les fichiers sont réduits automatiquement (environ 440 px) avant d'être enregistrés. Un fichier est plus fiable qu'un lien, car certains sites bloquent l'affichage de leurs images ailleurs.
+- **Une photo par membre** : chaque image choisie devient un membre.
+- **Plusieurs photos par membre** : sur la carte d'un membre, **+ Photos** (plusieurs images) ou **Dossier** (toutes les images d'un dossier). À chaque visite de la page du groupe, une de ses photos est tirée au hasard.
+- **Dossier du groupe** : choisis un dossier qui contient un sous-dossier par membre (`ITZY/Yeji`, `ITZY/Lia`…). Chaque sous-dossier devient un membre, nommé comme le sous-dossier ; un sous-dossier au nom d'un membre existant complète ses photos. Le navigateur demande une confirmation (« Importer N fichiers ? ») : c'est normal.
+
+Les photos sont copiées dans le site et réduites (environ 400 px) ; le dossier sur ton ordinateur n'est pas surveillé, donc réimporte-le si tu y ajoutes des images. Le choix d'un dossier fonctionne sur ordinateur ; sur téléphone, sélectionne plusieurs photos à la place. Les photos HEIC (iPhone) ne sont pas lues par tous les navigateurs : convertis-les en JPG.
 
 **Si ta base Supabase a été créée avant cette fonction**, lance une fois `supabase/migration-membres.sql` dans **SQL Editor → New query → Run** (une seule ligne, n'efface rien).
 

@@ -13,6 +13,8 @@ const DEFAULT_SETTINGS = {
   playlistName: '{artiste} · Tableau K-pop',
 };
 const MAX_MEMBERS = 12;
+const MAX_PHOTOS = 25;          // photos par membre (une est tirée au hasard à chaque visite)
+const IMG_RE = /\.(jpe?g|png|webp|gif|avif|bmp)$/i;
 const DECOR_MIN_GUTTER = 104;   // largeur minimale de marge (px) pour afficher les photocards sur les côtés
 const QUICK_CATEGORIES = ['2GG', '3GG', '4GG', '5GG', 'Solistes', 'Sous-unités'];
 const PAGE_SIZE = 200;
@@ -27,8 +29,10 @@ const state = {
   view: { type: 'home' },
   songFilters: { q: '', category: '', minRating: 0, fav: false, showHidden: false, sort: 'rating', limit: PAGE_SIZE },
   artistFilters: { q: '', showHidden: false, sort: 'rank' },
-  members: new Map(),           // artistId → [{ src, name }] (chargé à la demande)
+  members: new Map(),           // artistId → [{ name, photos: [src…] }] (chargé à la demande)
   membersModal: null,           // artistId dont on gère les photos
+  membersOpen: new Set(),       // membres dont on affiche toutes les photos dans la fenêtre
+  visit: 0,                     // augmente à chaque navigation : nouveau tirage des photos
 };
 const store = createStore();
 
@@ -55,6 +59,8 @@ const ICON = {
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   butterfly: '<svg class="bf" viewBox="0 0 64 64" aria-hidden="true"><g class="bf-wings" fill="url(#bf-grad)"><path d="M31 31C26 15 10 7 6 15c-4 9 6 17 24 18z"/><path d="M33 31C38 15 54 7 58 15c4 9-6 17-24 18z"/><path d="M30 35c-11 1-18 9-15 16 3 6 11 2 15-11z"/><path d="M34 35c11 1 18 9 15 16-3 6-11 2-15-11z"/></g><rect x="30.6" y="24" width="2.8" height="24" rx="1.4" fill="#fff"/><path d="M32 25c-1-6-4-10-8-12M32 25c1-6 4-10 8-12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
   image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M21 16l-5-5-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h3c4 0 6 10 10 10h4M3 17h3c1.6 0 2.8-1.6 3.8-3.5M14 9.5C15 8 16.2 7 18 7h2M17 4l3 3-3 3M17 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
   music: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18a3 3 0 1 1-2-2.8V5l12-2v12a3 3 0 1 1-2-2.8V7.4L9 8.8z" fill="currentColor"/></svg>',
 };
 
@@ -452,13 +458,33 @@ function viewLogin() {
 const rand = (a, b) => a + Math.random() * (b - a);
 const shuffle = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const membersLoading = new Set();
+const picks = new Map();        // artistId → { tag, srcs } : photo tirée pour chaque membre pendant cette visite
+let membersVer = 0;
+
+/** Ancien format { src, name } → { name, photos: [src] }. */
+function normMembers(list) {
+  return (Array.isArray(list) ? list : []).map(m => ({
+    name: m?.name || '',
+    photos: Array.isArray(m?.photos) ? m.photos.filter(Boolean) : (m?.src ? [m.src] : []),
+  }));
+}
+function pickedPhotos(id, list) {
+  const tag = `${state.visit}:${membersVer}`;
+  let p = picks.get(id);
+  if (!p || p.tag !== tag) {
+    p = { tag, srcs: list.map(m => m.photos[Math.floor(Math.random() * m.photos.length)]) };
+    picks.set(id, p);
+  }
+  return p.srcs;
+}
 
 function ensureMembers(id) {
   if (state.members.has(id) || membersLoading.has(id)) return;
   membersLoading.add(id);
   store.loadMembers(id).catch(() => []).then(m => {
     membersLoading.delete(id);
-    state.members.set(id, Array.isArray(m) ? m : []);
+    m = normMembers(m);
+    state.members.set(id, m);
     if (state.view.type === 'artist' && state.view.id === id) {
       decorSig = '';
       renderDecor();
@@ -474,7 +500,13 @@ function decorSource() {
   if (v.type === 'artist') {
     const m = state.members.get(v.id);
     if (m === undefined) { ensureMembers(v.id); return null; }
-    if (m.length) return { key: `a:${v.id}:m${m.length}`, shape: 'card', items: m.map(x => ({ src: x.src, label: x.name })) };
+    if (m.some(x => x.photos.length)) {
+      const srcs = pickedPhotos(v.id, m);
+      return {
+        key: `a:${v.id}:${picks.get(v.id).tag}`, shape: 'card',
+        items: m.map((x, i) => ({ src: srcs[i], label: x.name })).filter(it => it.src),
+      };
+    }
     const covers = [...new Set(tracksOf(v.id).map(t => t.album_image).filter(Boolean))];
     return { key: `a:${v.id}:c${covers.length}`, shape: 'square', items: covers.map(src => ({ src })) };
   }
@@ -573,7 +605,7 @@ let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderDecor, 200); });
 
 // ───────────────────────── Photos des membres ─────────────────────────
-function compressImage(file, max = 440) {
+function compressImage(file, max = 400) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -584,43 +616,89 @@ function compressImage(file, max = 440) {
       c.height = Math.round(img.naturalHeight * k);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
-      resolve(c.toDataURL('image/jpeg', .82));
+      resolve(c.toDataURL('image/jpeg', .8));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`${file.name} : image illisible (JPG, PNG ou WebP).`)); };
     img.src = url;
   });
 }
 
+function memberCard(m, i) {
+  const n = m.photos.length;
+  const open = state.membersOpen.has(i);
+  return `<div class="member${open ? ' open' : ''}">
+    <div class="member-img">
+      ${n ? `<img src="${esc(m.photos[0])}" alt="" referrerpolicy="no-referrer">` : `<span class="member-empty">${ICON.image}</span>`}
+      ${n > 1 ? `<button class="member-count" data-act="member-toggle" data-i="${i}" title="Voir ses photos">${ICON.shuffle} ${n}</button>` : ''}
+      <button class="icon-btn member-del" data-act="member-del" data-i="${i}" aria-label="Retirer ce membre">${ICON.x}</button>
+    </div>
+    <input data-act="member-name" data-i="${i}" value="${esc(m.name)}" placeholder="Nom" maxlength="30" aria-label="Nom du membre">
+    ${n < MAX_PHOTOS ? `<div class="member-add">
+      <label class="btn small" title="Ajouter une ou plusieurs photos">${ICON.plus}Photos<input type="file" accept="image/*" multiple data-act="member-photos" data-i="${i}" hidden></label>
+      <label class="btn small" title="Ajouter toutes les images d'un dossier">${ICON.folder}Dossier<input type="file" webkitdirectory directory multiple data-act="member-photos" data-i="${i}" hidden></label>
+    </div>` : `<p class="small muted center">Maximum ${MAX_PHOTOS} photos</p>`}
+    ${open && n > 1 ? `<div class="member-thumbs">${m.photos.map((src, j) => `<span class="mthumb">
+        <img src="${esc(src)}" alt="" referrerpolicy="no-referrer">
+        <button data-act="member-photo-del" data-i="${i}" data-j="${j}" aria-label="Retirer cette photo">${ICON.x}</button></span>`).join('')}</div>` : ''}
+  </div>`;
+}
+
 function membersModalHtml(id) {
   const a = artistById(id);
   const list = state.members.get(id) || [];
   const missing = store.mode === 'supabase' && store.membersMissing;
+  const total = list.reduce((n, m) => n + m.photos.length, 0);
   return `<div class="form">
     <div class="row between"><h2>${ICON.butterfly} Photos des membres · ${esc(a.name)}</h2><button class="icon-btn" data-act="modal-close" aria-label="Fermer">${ICON.x}</button></div>
-    <p>Elles s'affichent en photocards sur les côtés de la page de ${esc(a.name)}, placées au hasard à chaque visite. Le nom est facultatif.</p>
+    <p>Chaque membre peut avoir <strong>une photo</strong> ou <strong>plusieurs</strong> : à chaque visite de la page de ${esc(a.name)}, une de ses photos est tirée au hasard ${ICON.shuffle}</p>
     ${missing ? `<div class="banner flat">Une petite mise à jour de Supabase est nécessaire avant d'ajouter des photos : dans <strong>SQL Editor → New query</strong>, colle et lance :
       <code class="copy">alter table public.artists add column if not exists members jsonb not null default '[]'::jsonb;</code></div>` : ''}
-    ${list.length ? `<div class="member-grid">${list.map((m, i) => `<div class="member">
-        <img src="${esc(m.src)}" alt="" referrerpolicy="no-referrer">
-        <input data-act="member-name" data-i="${i}" value="${esc(m.name || '')}" placeholder="Nom" maxlength="30" aria-label="Nom du membre">
-        <button class="icon-btn member-del" data-act="member-del" data-i="${i}" aria-label="Retirer cette photo">${ICON.x}</button>
-      </div>`).join('')}</div>` : '<p class="muted small">Aucune photo pour l’instant.</p>'}
-    ${list.length < MAX_MEMBERS ? `<div class="row wrap">
-      <label class="btn primary">${ICON.plus}Ajouter des photos<input type="file" accept="image/*" multiple data-act="member-files" hidden></label>
-      <span class="muted small">ou</span>
-      <input type="url" id="member-url" placeholder="Coller le lien d'une image…" class="grow">
+    ${list.length ? `<div class="member-grid">${list.map(memberCard).join('')}</div>
+      <p class="small muted">${plural(list.length, 'membre')} · ${plural(total, 'photo')}</p>` : '<p class="muted small">Aucun membre pour l’instant.</p>'}
+    ${list.length < MAX_MEMBERS ? `<h2 class="sub-h">Ajouter des membres</h2>
+    <div class="row wrap">
+      <label class="btn primary" title="Chaque photo choisie devient un nouveau membre">${ICON.plus}Une photo par membre<input type="file" accept="image/*" multiple data-act="member-files" hidden></label>
+      <label class="btn" title="Un sous-dossier par membre (ex. ITZY/Yeji, ITZY/Lia…) : le nom du sous-dossier devient le nom du membre">${ICON.folder}Dossier du groupe<input type="file" webkitdirectory directory multiple data-act="group-folder" hidden></label>
+    </div>
+    <div class="row wrap">
+      <input type="url" id="member-url" placeholder="…ou coller le lien d'une image" class="grow">
       <button data-act="member-url">Ajouter</button>
     </div>
-    <p class="small muted">Astuce : un fichier ajouté depuis ton appareil est plus fiable qu'un lien (certains sites bloquent l'affichage ailleurs). Les photos sont réduites automatiquement.</p>`
-    : `<p class="small muted">Maximum ${MAX_MEMBERS} photos par artiste.</p>`}
+    <p class="small muted"><strong>Dossier du groupe :</strong> choisis un dossier qui contient un sous-dossier par membre (par exemple <code>ITZY/Yeji</code>, <code>ITZY/Lia</code>…). Chaque sous-dossier devient un membre, avec toutes ses photos. Un sous-dossier au nom d'un membre existant complète ses photos.
+    Les photos sont copiées et réduites dans le site : si tu en ajoutes plus tard dans le dossier, il suffit de le réimporter.</p>`
+    : `<p class="small muted">Maximum ${MAX_MEMBERS} membres par artiste.</p>`}
   </div>`;
+}
+
+/** Fichiers images d'une sélection (ignore les autres fichiers d'un dossier), triés par nom. */
+function imageFiles(fileList) {
+  return [...fileList].filter(f => f.type.startsWith('image/') || IMG_RE.test(f.name))
+    .sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name, 'fr', { numeric: true }));
+}
+
+/** Réduit une liste de fichiers ; renvoie les images lisibles et compte les autres. */
+async function compressAll(files) {
+  if (files.length > 3) toast(`Préparation de ${files.length} photos…`, 'info', 2500);
+  const out = [];
+  let failed = 0;
+  for (const f of files) {
+    try { out.push(await compressImage(f)); } catch { failed++; }
+  }
+  if (failed) toast(`${plural(failed, 'image ignorée', 'images ignorées')} (format non lu, par ex. HEIC : convertis-les en JPG).`, 'error', 7000);
+  return out;
+}
+
+function warnIfHeavy(list) {
+  const kb = JSON.stringify(list).length / 1024;
+  if (kb > 6000) toast(`Attention : ${Math.round(kb / 1024)} Mo de photos pour ce groupe, la page mettra plus de temps à s'ouvrir.`, 'info', 7000);
 }
 
 function openMembers(id) {
   state.membersModal = id;
+  state.membersOpen.clear();
   const show = () => openModal(membersModalHtml(id), { wide: true });
   if (state.members.has(id)) show();
-  else store.loadMembers(id).catch(() => []).then(m => { state.members.set(id, m); show(); });
+  else store.loadMembers(id).catch(() => []).then(m => { state.members.set(id, normMembers(m)); show(); });
 }
 
 function refreshMembersModal() {
@@ -631,6 +709,7 @@ function refreshMembersModal() {
 async function saveMembers(id, list) {
   const before = state.members.get(id) || [];
   state.members.set(id, list);
+  membersVer++;
   try { await store.saveMembers(id, list); } catch (e) { state.members.set(id, before); refreshMembersModal(); throw e; }
   refreshMembersModal();
   if (state.view.type === 'artist' && state.view.id === id) { decorSig = ''; render(); }
@@ -638,6 +717,7 @@ async function saveMembers(id, list) {
 
 // ───────────────────────── Navigation ─────────────────────────
 function route() {
+  state.visit++;
   const [, type, id] = (location.hash || '#/').split('/');
   if (type === 'cat' && (id === 'none' || categoryById(id))) state.view = { type: 'cat', id };
   else if (type === 'artist' && artistById(id)) {
@@ -972,15 +1052,28 @@ const actions = {
     const id = state.membersModal;
     const list = [...(state.members.get(id) || [])];
     list.splice(Number(el.dataset.i), 1);
+    state.membersOpen.clear();
     await saveMembers(id, list);
+  },
+  'member-photo-del': async el => {
+    const id = state.membersModal;
+    const i = Number(el.dataset.i), j = Number(el.dataset.j);
+    const list = (state.members.get(id) || []).map((m, k) => k === i ? { ...m, photos: m.photos.filter((_, x) => x !== j) } : m);
+    await saveMembers(id, list);
+  },
+  'member-toggle': async el => {
+    const i = Number(el.dataset.i);
+    if (state.membersOpen.has(i)) state.membersOpen.delete(i); else state.membersOpen.add(i);
+    refreshMembersModal();
   },
   'member-url': async () => {
     const id = state.membersModal;
     const url = $('#member-url')?.value.trim();
     if (!url) return;
     if (!/^https?:\/\//i.test(url)) { toast('Colle un lien qui commence par https://', 'error'); return; }
-    await saveMembers(id, [...(state.members.get(id) || []), { src: url, name: '' }].slice(0, MAX_MEMBERS));
+    await saveMembers(id, [...(state.members.get(id) || []), { name: '', photos: [url] }].slice(0, MAX_MEMBERS));
   },
+
   // Lignes de chansons
   'play': async (el, key) => play(state.tracks.get(key).id),
   'rate': async (el, key) => {
@@ -1019,12 +1112,59 @@ document.addEventListener('change', guard(async e => {
     const a = artistById(el.dataset.id); a.category_id = el.value; a.position = artistsOf(el.value).length;
     await saveArtist(a); toast(`${a.name} déplacé dans « ${categoryById(el.value)?.name} ».`); render();
   } else if (act === 'member-files') {
+    // Chaque photo choisie = un nouveau membre.
     const id = state.membersModal;
-    const files = [...el.files].slice(0, MAX_MEMBERS - (state.members.get(id) || []).length);
+    const files = imageFiles(el.files).slice(0, MAX_MEMBERS - (state.members.get(id) || []).length);
     el.value = '';
-    const added = [];
-    for (const f of files) added.push({ src: await compressImage(f), name: '' });
-    if (added.length) await saveMembers(id, [...(state.members.get(id) || []), ...added]);
+    const srcs = await compressAll(files);
+    if (srcs.length) await saveMembers(id, [...(state.members.get(id) || []), ...srcs.map(src => ({ name: '', photos: [src] }))]);
+  } else if (act === 'member-photos') {
+    // Photos (ou dossier) ajoutées à un membre existant.
+    const id = state.membersModal;
+    const i = Number(el.dataset.i);
+    const cur = state.members.get(id)?.[i];
+    const all = imageFiles(el.files);
+    el.value = '';
+    if (!cur) return;
+    if (!all.length) { toast('Aucune image trouvée dans cette sélection.', 'error'); return; }
+    const room = MAX_PHOTOS - cur.photos.length;
+    if (all.length > room) toast(`Seules les ${room} premières images sont gardées (maximum ${MAX_PHOTOS} par membre).`, 'info', 6000);
+    const srcs = await compressAll(all.slice(0, room));
+    const list = state.members.get(id).map((m, k) => k === i ? { ...m, photos: [...m.photos, ...srcs] } : m);
+    if (srcs.length) { state.membersOpen.add(i); warnIfHeavy(list); await saveMembers(id, list); }
+  } else if (act === 'group-folder') {
+    // Dossier du groupe : un sous-dossier par membre ; les images posées à la racine = un membre chacune.
+    const id = state.membersModal;
+    const all = imageFiles(el.files);
+    el.value = '';
+    if (!all.length) { toast('Aucune image trouvée dans ce dossier.', 'error'); return; }
+    const groups = new Map();
+    const loose = [];
+    for (const f of all) {
+      const parts = (f.webkitRelativePath || f.name).split('/');
+      if (parts.length >= 3) {
+        const name = parts[1].trim();
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(f);
+      } else loose.push(f);
+    }
+    const list = (state.members.get(id) || []).map(m => ({ ...m, photos: [...m.photos] }));
+    let skipped = 0;
+    for (const [name, files] of groups) {
+      let m = list.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (!m) {
+        if (list.length >= MAX_MEMBERS) { skipped++; continue; }
+        m = { name: name.slice(0, 30), photos: [] };
+        list.push(m);
+      }
+      m.photos.push(...await compressAll(files.slice(0, MAX_PHOTOS - m.photos.length)));
+    }
+    for (const src of await compressAll(loose.slice(0, Math.max(0, MAX_MEMBERS - list.length)))) list.push({ name: '', photos: [src] });
+    if (skipped) toast(`${plural(skipped, 'sous-dossier ignoré', 'sous-dossiers ignorés')} (maximum ${MAX_MEMBERS} membres).`, 'info', 6000);
+    const cleaned = list.filter(m => m.photos.length);
+    warnIfHeavy(cleaned);
+    await saveMembers(id, cleaned);
+    toast(`${plural(groups.size, 'membre importé', 'membres importés')}${loose.length ? ` · ${plural(Math.min(loose.length, MAX_MEMBERS), 'photo seule', 'photos seules')}` : ''}.`);
   } else if (act === 'member-name') {
     const id = state.membersModal;
     const list = (state.members.get(id) || []).map((m, i) => i === Number(el.dataset.i) ? { ...m, name: el.value.trim() } : m);
