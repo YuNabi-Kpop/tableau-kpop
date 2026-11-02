@@ -149,6 +149,27 @@ function originHtml(a) {
     return g ? `<a href="#/artist/${g.id}">${esc(g.name)}</a>` : esc(part);
   }).join(', ');
 }
+/** Vrai nom de l'artiste du site correspondant à part, sinon part tel quel. */
+const originName = (a, part) => state.artists.find(x => x.id !== a.id && normName(x.name) === normName(part))?.name || part;
+async function saveOrigins(a, parts) {
+  a.note = parts.length ? parts.join(', ') : null;
+  await saveArtist(a);
+  render();
+  document.querySelector(`[data-act="origin-add"][data-id="${CSS.escape(a.id)}"]`)?.focus();
+}
+/** Ajoute le(s) groupe(s) tapé(s) dans le champ « + Ajouter un groupe » (doublons et l'artiste lui-même ignorés). */
+async function addOrigins(el) {
+  const a = artistById(el.dataset.id);
+  if (!a) return;
+  const parts = originParts(a);
+  const added = [];
+  for (const raw of el.value.split(/\s*[,/;]\s*/)) {
+    const x = originName(a, raw.trim().replace(/\s+/g, ' '));
+    if (x && normName(x) !== normName(a.name) && ![...parts, ...added].some(p => normName(p) === normName(x))) added.push(x);
+  }
+  el.value = '';
+  if (added.length) await saveOrigins(a, [...parts, ...added]);
+}
 /** Texte simple du groupe d'origine, avec le vrai nom des artistes du site. */
 const originText = a => originParts(a).map(part => state.artists.find(x => x.id !== a.id && normName(x.name) === normName(part))?.name || part).join(', ');
 /** Artistes dont le groupe d'origine est cet artiste (membres en solo). */
@@ -317,7 +338,7 @@ function artistCard(a, stats) {
       <a class="art" href="#/artist/${a.id}" ${org ? 'draggable="false"' : ''}>${cover(a.image, 'art-img')}</a>
       <div class="card-body">
         <a class="name" href="#/artist/${a.id}">${esc(a.name)}</a>
-        ${a.note ? `<div class="origin" title="Groupe d'origine">${ICON.heart}${originHtml(a)}</div>` : ''}
+        ${a.note ? `<div class="origin" title="${esc(originText(a))}">${ICON.heart}<span>${originHtml(a)}</span></div>` : ''}
         <div class="meta">${a.last_fetched_at ? `${plural(s.total, 'chanson')}${s.rated ? ` · <span class="gold">★ ${s.rated}</span>` : ''}${s.fav ? ` · <span class="pink">♥ ${s.fav}</span>` : ''}` : '<span class="muted">Pas encore récupéré</span>'}</div>
         <div class="card-foot">
           <label class="check small"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure</label>
@@ -478,8 +499,8 @@ function viewArtist(id) {
       ${cover(a.image, 'hero-img')}
       <div class="hero-body">
         <h1>${esc(a.name)}</h1>
-        ${a.note ? `<p class="origin big">${ICON.heart}de ${originHtml(a)}</p>` : ''}
-        ${solosOf(a).length ? `<p class="origin big">${ICON.heart}En solo : ${solosOf(a).map(x => `<a href="#/artist/${x.id}">${esc(x.name)}</a>`).join(', ')}</p>` : ''}
+        ${a.note ? `<p class="origin big">${ICON.heart}<span>de ${originHtml(a)}</span></p>` : ''}
+        ${solosOf(a).length ? `<p class="origin big">${ICON.heart}<span>En solo : ${solosOf(a).map(x => `<a href="#/artist/${x.id}">${esc(x.name)}</a>`).join(', ')}</span></p>` : ''}
         <p class="sub">${plural(all.length - hiddenCount, 'chanson')}${hiddenCount ? ` · ${hiddenCount} masquée${hiddenCount > 1 ? 's' : ''}` : ''}
           ${a.last_fetched_at ? ` · mis à jour le ${fmtDate(a.last_fetched_at)}` : ' · jamais récupéré'}</p>
         <div class="actions">
@@ -494,7 +515,11 @@ function viewArtist(id) {
         <div class="row wrap small">
           <label class="inline">Onglet <select data-act="artist-category" data-id="${a.id}">${catOptions}</select></label>
           ${subList().length ? `<label class="inline">Sous-catégorie <select data-act="artist-sub" data-id="${a.id}">${subOptions(subOf(a))}</select></label>` : ''}
-          <label class="inline">Groupe d'origine <input class="origin-input" data-act="artist-origin" data-id="${a.id}" value="${esc(a.note || '')}" placeholder="ex. TWICE" maxlength="80" list="artist-names" title="Pour un soliste ou une sous-unité. Plusieurs groupes : sépare-les par une virgule."></label>
+          <div class="origin-edit" role="group" aria-label="Groupes d'origine">
+            <span class="muted">Groupes d'origine</span>
+            ${originParts(a).map((part, i) => `<span class="tag">${esc(originName(a, part))}<button data-act="origin-del" data-id="${a.id}" data-i="${i}" aria-label="Retirer ${esc(part)}">${ICON.x}</button></span>`).join('')}
+            <input class="origin-input" data-act="origin-add" data-id="${a.id}" placeholder="${originParts(a).length ? '+ Autre groupe' : '+ Ajouter un groupe'}" maxlength="40" list="artist-names" aria-label="Ajouter un groupe d'origine" title="Pour un soliste ou une sous-unité : un groupe à la fois (Entrée pour valider).">
+          </div>
           <datalist id="artist-names">${[...state.artists].filter(x => x.id !== a.id).sort((x, y) => x.name.localeCompare(y.name, 'fr')).map(x => `<option value="${esc(x.name)}">`).join('')}</datalist>
           <label class="check"><input type="checkbox" data-act="toggle-exclude" data-id="${a.id}" ${a.excluded ? 'checked' : ''}> Exclure des récupérations groupées</label>
           <button class="link danger-text" data-act="delete-artist" data-id="${a.id}">${ICON.trash}Supprimer l'artiste</button>
@@ -1235,6 +1260,10 @@ const actions = {
   'export': async () => exportJson(),
   'more-songs': async () => { state.songFilters.limit += PAGE_SIZE; render(); },
   'members': async el => openMembers(el.dataset.id),
+  'origin-del': async el => {
+    const a = artistById(el.dataset.id);
+    await saveOrigins(a, originParts(a).filter((_, i) => i !== Number(el.dataset.i)));
+  },
   'org-toggle': async () => { state.organize = !state.organize; state.orgPick.clear(); render(); },
   'org-all': async el => { el.dataset.ids.split(',').filter(Boolean).forEach(id => state.orgPick.add(id)); render(); },
   'org-none': async () => { state.orgPick.clear(); render(); },
@@ -1339,14 +1368,8 @@ document.addEventListener('change', guard(async e => {
     state.settings = { ...state.settings, artistSort: el.value };
     render();
     await store.saveSettings(state.settings);
-  } else if (act === 'artist-origin') {
-    const a = artistById(el.dataset.id);
-    const v = el.value.trim().replace(/\s+/g, ' ');
-    if ((a.note || '') === v) return;
-    a.note = v || null;
-    await saveArtist(a);
-    toast(v ? `${a.name} : groupe d'origine « ${v} »` : `${a.name} : groupe d'origine retiré`);
-    render();
+  } else if (act === 'origin-add') {
+    await addOrigins(el);
   } else if (act === 'artist-sub') {
     const a = artistById(el.dataset.id);
     await setSub([a.id], el.value);
@@ -1425,6 +1448,9 @@ document.addEventListener('change', guard(async e => {
 
 document.addEventListener('input', e => {
   const el = e.target;
+  // Suggestion choisie dans la liste : on l'ajoute tout de suite.
+  if (el.dataset?.act === 'origin-add' && (e.inputType === 'insertReplacementText' || !e.inputType)
+    && [...(el.list?.options || [])].some(o => o.value === el.value)) { guard(addOrigins)(el); return; }
   if (el.dataset.filter && el.type === 'search') {
     clearTimeout(el._t);
     el._t = setTimeout(() => {
@@ -1444,6 +1470,15 @@ function applyFilter(el) {
   if (el.dataset.filter === 'songs') target.limit = PAGE_SIZE;
   render();
 }
+
+// Entrée dans « + Ajouter un groupe » : valide (l'événement change s'en charge).
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.dataset?.act === 'origin-add') {
+    e.preventDefault();
+    const el = e.target;
+    guard(addOrigins)(el).then(() => (document.querySelector(`[data-act="origin-add"][data-id="${CSS.escape(el.dataset.id)}"]`) || el).focus());
+  }
+});
 
 // Enter dans un champ rang/note : valide et passe à la ligne suivante.
 document.addEventListener('keydown', e => {

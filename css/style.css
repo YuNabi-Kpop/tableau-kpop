@@ -222,12 +222,22 @@ main { max-width: 1200px; margin: 0 auto; padding: 1.25rem; position: relative; 
 /* Groupe d'origine */
 .origin { display: flex; align-items: center; gap: .3rem; font-size: .8rem; font-weight: 700; color: #ffb3d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .origin svg { width: 12px; height: 12px; color: var(--accent); filter: drop-shadow(0 0 4px rgba(255, 79, 163, .8)); flex: none; }
+.origin > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .origin a { color: inherit; text-decoration: none; }
 .origin a:hover { text-decoration: underline; color: #fff; }
 .origin.big { font-size: .98rem; font-weight: 600; margin: -.2rem 0 0; white-space: normal; }
 .origin.big svg { width: 15px; height: 15px; }
 .origin.big a { font-family: var(--font-title); font-weight: 600; color: #ffc3e2; }
+.origin-edit { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: .9rem; flex-basis: 100%; }
 .origin-input { width: 170px; padding: .3rem .55rem; }
+.tag {
+  display: inline-flex; align-items: center; gap: .25rem; padding: .18rem .3rem .18rem .65rem; border-radius: 999px;
+  font-family: var(--font-title); font-weight: 600; font-size: .88rem; color: #fff;
+  background: rgba(255, 79, 163, .16); border: 1px solid rgba(255, 79, 163, .6); box-shadow: 0 0 10px rgba(255, 79, 163, .2);
+}
+.tag button { width: 20px; height: 20px; padding: 0; justify-content: center; border: none; border-radius: 50%; background: transparent; color: #ffc3e2; }
+.tag button svg { width: 12px; height: 12px; }
+.tag button:hover { background: var(--danger); color: #fff; box-shadow: none; }
 
 /* Page artiste */
 .back { display: inline-block; color: var(--muted); text-decoration: none; margin-bottom: .8rem; font-size: .9rem; }
